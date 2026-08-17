@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Arthouse</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
   :root {
     color-scheme: light dark;
@@ -11,11 +15,22 @@
     --border: #e2e2e2;
     --muted: #767676;
     --card-bg: canvas;
+    --surface: #f7f7f8;
+    --shadow: 0 8px 24px rgba(0, 0, 0, 0.13);
     --rating-fill: #2a78d6;
     --rating-track: color-mix(in srgb, var(--rating-fill) 22%, canvas);
   }
   @media (prefers-color-scheme: dark) {
-    :root { --rating-fill: #3987e5; }
+    :root {
+      /* The light-mode --border/--muted values are near-white and low-contrast
+         respectively once canvas goes dark, so they need real overrides, not
+         just a different rating hue. */
+      --border: #34353c;
+      --muted: #a2a2ac;
+      --surface: #191a1f;
+      --shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+      --rating-fill: #5b9df0;
+    }
   }
   * { box-sizing: border-box; }
   body {
@@ -70,11 +85,25 @@
   .refresh-btn:hover:not(:disabled) { background: rgba(245, 240, 234, 0.18); }
   .refresh-btn:disabled { opacity: 0.6; cursor: default; }
 
-  /* Functional controls -- respect light/dark like the rest of the page */
-  .controls { padding-top: 0.25rem; }
+  /* Functional controls -- respect light/dark like the rest of the page.
+     Sticky so the day/rating/time filters stay reachable while scrolling a
+     long grid; compacted onto three rows so it doesn't eat the viewport. */
+  .controls {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: canvas;
+    margin: 0 -1.25rem;
+    padding: 0.7rem 1.25rem 0.6rem;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .controls.stuck { border-bottom-color: var(--border); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06); }
+  .controls-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+  .controls-row:last-child { margin-bottom: 0; }
 
   /* View tabs */
-  .view-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
+  .view-tabs { display: flex; gap: 0.5rem; flex-shrink: 0; }
   .view-tab {
     font: inherit;
     font-size: 0.9rem;
@@ -89,18 +118,33 @@
   .view-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   #filter {
-    width: 100%;
-    font-size: 1rem;
-    padding: 0.6rem 0.8rem;
-    margin: 0 0 0.9rem;
+    flex: 1;
+    min-width: 180px;
+    font-size: 0.95rem;
+    padding: 0.5rem 0.75rem;
+    margin: 0;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--card-bg);
     color: inherit;
   }
 
+  #reset-btn {
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.45rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--muted);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #reset-btn:hover { color: var(--accent); border-color: var(--accent); }
+  #reset-btn[hidden] { display: none; }
+
   /* Day pills */
-  .day-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.9rem; }
+  .day-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .pill {
     font: inherit;
     font-size: 0.85rem;
@@ -118,7 +162,6 @@
     display: flex;
     align-items: center;
     gap: 0.7rem;
-    margin-bottom: 0.85rem;
     font-size: 0.85rem;
   }
   .slider-filter label { white-space: nowrap; }
@@ -126,8 +169,8 @@
   .range-slider {
     -webkit-appearance: none;
     appearance: none;
-    width: 220px;
-    max-width: 50vw;
+    width: 150px;
+    max-width: 34vw;
     height: 6px;
     border-radius: 3px;
     background: linear-gradient(to right, var(--slider-fill) 0%, var(--slider-fill) var(--pct, 0%), var(--slider-track) var(--pct, 0%), var(--slider-track) 100%);
@@ -154,27 +197,40 @@
   .range-slider::-moz-range-track { height: 6px; border-radius: 3px; background: transparent; }
 
   /* Cinema / bucket filter panels */
-  .filter-panels { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1.5rem; }
+  .filter-panels { display: flex; flex-wrap: wrap; gap: 0.6rem; }
   .filter-panel {
+    position: relative;
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 0;
   }
+  .filter-panel[open] { border-color: var(--accent); }
   .filter-panel summary {
     cursor: pointer;
     padding: 0.45rem 0.8rem;
     font-size: 0.85rem;
     list-style: none;
+    white-space: nowrap;
   }
   .filter-panel summary::-webkit-details-marker { display: none; }
   .filter-panel summary::after { content: " \25be"; color: var(--muted); }
   .filter-panel[open] summary::after { content: " \25b4"; }
+  .panel-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+  /* Absolutely positioned so opening a panel doesn't grow the sticky bar and
+     shove the grid down. */
   .filter-panel-body {
-    padding: 0.5rem 0.8rem 0.7rem;
-    border-top: 1px solid var(--border);
-    max-height: 300px;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 30;
+    padding: 0.6rem 0.8rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: canvas;
+    box-shadow: var(--shadow);
+    max-height: 340px;
     overflow-y: auto;
-    min-width: 210px;
+    min-width: 230px;
   }
   .filter-panel-actions { margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
   .filter-panel-actions button {
@@ -211,7 +267,7 @@
     white-space: nowrap;
   }
 
-  /* Badges (New / Last chance) */
+  /* Badges (Last chance) */
   .badge {
     font-size: 0.66rem;
     font-weight: 700;
@@ -222,8 +278,27 @@
     display: inline-block;
     letter-spacing: 0.02em;
   }
-  .badge-new { background: color-mix(in srgb, var(--rating-fill) 20%, canvas); color: var(--rating-fill); }
   .badge-last { background: color-mix(in srgb, var(--accent) 20%, canvas); color: var(--accent); }
+
+  /* New-release flag -- bare emoji, By Movie tab only (the By Cinema rows are
+     dense enough already). Sits after the language tag. */
+  /* By Movie tab only -- the By Cinema rows are dense enough already. Sits at
+     the end of the meta line, after the runtime, and is loud on purpose. */
+  .new-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.22em;
+    margin-left: 0.45rem;
+    padding: 0.12em 0.5em 0.14em;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    vertical-align: 1px;
+  }
 
   /* By-cinema view */
   .grid {
@@ -236,13 +311,24 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     background: var(--card-bg);
-    overflow: hidden;
+    /* Deliberately not overflow:hidden -- that would make each card its own
+       scrollport and kill the sticky header below. */
   }
+  .card > details > summary:hover { background: var(--surface); }
   .card > details > summary {
     cursor: pointer;
     list-style: none;
     padding: 0.9rem 1rem 0.7rem;
+    /* Pinned just under the sticky control bar so you can still tell which
+       column is which cinema after scrolling. --controls-h is measured in JS. */
+    position: sticky;
+    top: calc(var(--controls-h, 150px) - 1px);
+    z-index: 2;
+    background: var(--card-bg);
+    border-radius: 10px 10px 0 0;
+    border-bottom: 1px solid transparent;
   }
+  .card > details[open] > summary { border-bottom-color: var(--border); }
   .card > details > summary::-webkit-details-marker { display: none; }
   .card summary .head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
   .card h2 { font-size: 1.05rem; margin: 0; font-family: inherit; }
@@ -254,8 +340,9 @@
     font-size: 0.82rem;
     margin-top: 0.15rem;
   }
-  .card .body { padding: 0 1rem 1rem; }
-  .day-group { margin-top: 0.6rem; }
+  /* Top padding so the first day label isn't glued to the sticky header. */
+  .card .body { padding: 0.6rem 1rem 1rem; }
+  .day-group { margin-top: 0.6rem; scroll-margin-top: calc(var(--controls-h, 150px) + 3.5rem); }
   .day-group:first-of-type { margin-top: 0; }
   .day-label {
     font-size: 0.78rem;
@@ -346,7 +433,29 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
   }
+  .movie-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .movie-card { transition: none; }
+    .movie-card:hover { transform: none; }
+  }
+  /* Placeholder so films OMDb has no poster for don't leave a bare grey box. */
+  .movie-card .poster-wrap::before {
+    content: "\1F3AC";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.4rem;
+    opacity: 0.35;
+  }
+  .movie-card .poster-wrap img { position: relative; }
   .movie-card .poster-wrap {
     position: relative;
     width: 100%;
@@ -367,7 +476,88 @@
   .movie-card .movie-info { padding: 0.8rem 0.9rem 1rem; }
   .movie-card h3 { margin: 0 0 0.25rem; font-size: 1.02rem; font-family: inherit; }
   .movie-card .movie-sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.5rem; }
-  .movie-card .film-desc { margin-top: 0.5rem; }
+  /* Clamped so the browse grid stays on a tidy baseline instead of every row
+     being as tall as its longest synopsis. */
+  .movie-card .film-desc {
+    margin-top: 0.5rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* Filled in by applyFilters() -- which cinemas this film is actually on at,
+     under the filters currently applied. */
+  .movie-where {
+    font-size: 0.76rem;
+    line-height: 1.45;
+    margin-top: 0.55rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .movie-where strong { color: inherit; font-weight: 600; }
+  .movie-where:empty { display: none; }
+
+  /* Keyboard accessibility -- the default outline is invisible on several of
+     these custom-styled controls. */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* --- Map ---------------------------------------------------------------
+     Collapsed by default so it never costs vertical space you didn't ask
+     for; Leaflet is only booted the first time it's opened. */
+  .map-panel { margin-top: 0.9rem; }
+  .map-panel > summary {
+    cursor: pointer;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--card-bg);
+    color: var(--muted);
+  }
+  .map-panel > summary::-webkit-details-marker { display: none; }
+  .map-panel > summary:hover { color: var(--accent); border-color: var(--accent); }
+  .map-panel[open] > summary { color: var(--accent); border-color: var(--accent); }
+  .map-count { font-variant-numeric: tabular-nums; }
+  #cinema-map {
+    height: 320px;
+    margin-top: 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    z-index: 0;  /* keep Leaflet's panes below the sticky control bar */
+  }
+  #map-fallback {
+    margin-top: 0.7rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  /* OSM tiles are light-only; invert them (and re-invert nothing else) so the
+     map doesn't glare in dark mode. */
+  @media (prefers-color-scheme: dark) {
+    .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9); }
+  }
+  .leaflet-container { font: inherit; background: var(--surface); }
+  .map-pin-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
@@ -383,35 +573,44 @@
     Within {{ radius_km }} km of home &middot; <span id="total-count">{{ total_count }}</span> showtimes across <span id="total-cinemas">{{ cinemas|length }}</span> cinemas
     &middot; generated {{ generated_at }}
   </div>
+  <details class="map-panel" id="map-panel">
+    <summary>&#128506;&#65039; Map <span class="map-count"></span></summary>
+    <div id="cinema-map"></div>
+  </details>
 </div>
 
-<div class="controls">
-  <div class="view-tabs">
-    <button type="button" class="view-tab active" data-view="cinema">&#127916; By Cinema</button>
-    <button type="button" class="view-tab" data-view="movie">&#127871; By Movie</button>
+<div class="controls" id="controls">
+  <div class="controls-row">
+    <div class="view-tabs">
+      <button type="button" class="view-tab active" data-view="cinema">&#127916; By Cinema</button>
+      <button type="button" class="view-tab" data-view="movie">&#127871; By Movie</button>
+    </div>
+    <input id="filter" type="search" placeholder="&#128269; Filter by film or cinema&hellip;" autocomplete="off">
+    <button type="button" id="reset-btn" hidden>&#10005; Reset filters</button>
   </div>
 
-  <input id="filter" type="search" placeholder="&#128269; Filter by film or cinema&hellip;" autocomplete="off">
-
-  <div class="day-pills" id="day-pills">
-    {% for day in day_pills %}
-    <button type="button" class="pill{{ ' active' if day.date == today_iso }}" data-date="{{ day.date }}">{{ day.label }}</button>
-    {% endfor %}
+  <div class="controls-row">
+    <div class="day-pills" id="day-pills">
+      {% for day in day_pills %}
+      <button type="button" class="pill{{ ' active' if day.date == today_iso }}" data-date="{{ day.date }}">{{ day.label }}</button>
+      {% endfor %}
+    </div>
   </div>
 
-  <div class="slider-filter">
-    <label for="rating-slider">&#11088; Min IMDb rating: <span id="rating-slider-value" class="slider-value">Any</span></label>
-    <input type="range" id="rating-slider" class="range-slider" style="--slider-fill: var(--rating-fill); --slider-track: var(--rating-track);" min="0" max="10" step="0.1" value="0">
-  </div>
+  <div class="controls-row">
+    <div class="slider-filter">
+      <label for="rating-slider">&#11088; Rating: <span id="rating-slider-value" class="slider-value">Any</span></label>
+      <input type="range" id="rating-slider" class="range-slider" style="--slider-fill: var(--rating-fill); --slider-track: var(--rating-track);" min="0" max="10" step="0.1" value="0">
+    </div>
 
-  <div class="slider-filter">
-    <label for="time-slider"><span id="time-emoji">&#128336;</span> Around: <span id="time-slider-value" class="slider-value">Any time</span></label>
-    <input type="range" id="time-slider" class="range-slider" style="--slider-fill: var(--accent); --slider-track: color-mix(in srgb, var(--accent) 20%, canvas);" min="0" max="1439" step="15" value="0">
-  </div>
+    <div class="slider-filter">
+      <label for="time-slider"><span id="time-emoji">&#128336;</span> Around: <span id="time-slider-value" class="slider-value">Any time</span></label>
+      <input type="range" id="time-slider" class="range-slider" style="--slider-fill: var(--accent); --slider-track: color-mix(in srgb, var(--accent) 20%, canvas);" min="0" max="1439" step="15" value="0">
+    </div>
 
-  <div class="filter-panels">
+    <div class="filter-panels">
     <details class="filter-panel" id="cinema-panel">
-      <summary>&#127916; Cinemas</summary>
+      <summary>&#127916; Cinemas <span class="panel-count" data-count-for="cinema-toggle"></span></summary>
       <div class="filter-panel-body">
         <div class="filter-panel-actions">
           <button type="button" data-action="all">All</button><button type="button" data-action="none">None</button>
@@ -431,7 +630,7 @@
     </details>
 
     <details class="filter-panel" id="bucket-panel">
-      <summary>&#128692; Bike time</summary>
+      <summary>&#128692; Bike time <span class="panel-count" data-count-for="bucket-toggle"></span></summary>
       <div class="filter-panel-body">
         <div class="filter-panel-actions">
           <button type="button" data-action="all">All</button><button type="button" data-action="none">None</button>
@@ -441,6 +640,7 @@
         {% endfor %}
       </div>
     </details>
+    </div>
   </div>
 </div>
 
@@ -472,7 +672,6 @@
               <div class="film-col">
                 <details class="film-details">
                   <summary>
-                    {% if s.is_new %}<span class="badge badge-new">&#127381; New</span>{% endif %}
                     {% if s.is_last_chance %}<span class="badge badge-last">&#8987; Last chance</span>{% endif %}
                     <span class="film">{{ s.film_title }} <span class="lang">{{ s.language_tag }}</span></span>
                   </summary>
@@ -513,15 +712,16 @@
     <div class="movie-card" data-film="{{ f.film_title|lower }}">
       <div class="poster-wrap">
         {% if f.poster_url %}<img src="{{ f.poster_url }}" alt="" loading="lazy">{% endif %}
+        {% if f.is_last_chance %}
         <div class="poster-badges">
-          {% if f.is_new %}<span class="badge badge-new">&#127381; New</span>{% endif %}
-          {% if f.is_last_chance %}<span class="badge badge-last">&#8987; Last chance</span>{% endif %}
+          <span class="badge badge-last">&#8987; Last chance</span>
         </div>
+        {% endif %}
       </div>
       <div class="movie-info">
         <h3>{{ f.film_title }}</h3>
         <div class="movie-sub">
-          {{ f.language_tag }}{{ " · " ~ f.genre if f.genre }}{{ (" · " ~ f.runtime_minutes ~ " min") if f.runtime_minutes }}
+          {{ f.language_tag }}{{ " · " ~ f.genre if f.genre }}{{ (" · " ~ f.runtime_minutes ~ " min") if f.runtime_minutes }}{% if f.is_new %}<span class="new-flag" title="First showing within the last 14 days">&#127381; New</span>{% endif %}
         </div>
         {% if f.imdb_rating %}
         <span class="rating" title="IMDb {{ f.imdb_rating }}/10">
@@ -532,6 +732,7 @@
         <p class="film-desc">{{ f.description_full or "No description available." }}</p>
         {% if f.director %}<p class="film-credit"><strong>Director:</strong> {{ f.director }}</p>{% endif %}
         {% if f.cast %}<p class="film-credit"><strong>Cast:</strong> {{ f.cast }}</p>{% endif %}
+        <div class="movie-where"></div>
       </div>
     </div>
     {% endfor %}
@@ -567,9 +768,13 @@
   function applyFilters() {
     var visibleCards = 0;
     var grandTotal = 0;
-    var visibleFilms = new Set();
+    // film slug -> { cinemas: Set(display names), count, times: [] }, built from
+    // whatever survives the current filters so the By Movie tab can say where a
+    // film is actually on rather than just that it exists somewhere this week.
+    var visibleFilms = new Map();
 
     cards.forEach(function (card) {
+      var cinemaLabel = card.querySelector("h2") ? card.querySelector("h2").textContent.trim() : card.dataset.cinema;
       var cinemaOk = state.cinemas.has(card.dataset.cinema);
       var bucketOk = state.buckets.has(card.dataset.bucket);
       var cinemaNameMatches = card.dataset.cinema.indexOf(state.query) !== -1;
@@ -585,7 +790,16 @@
           var timeOk = state.targetMinutes === 0 || Math.abs(parseInt(row.dataset.minutes, 10) - state.targetMinutes) <= 60;
           var show = dayOk && textOk && ratingOk && timeOk;
           row.style.display = show ? "" : "none";
-          if (show) { groupHasVisible = true; cardVisibleCount++; visibleFilms.add(row.dataset.film); }
+          if (show) {
+            groupHasVisible = true;
+            cardVisibleCount++;
+            var info = visibleFilms.get(row.dataset.film);
+            if (!info) { info = { cinemas: new Set(), count: 0, times: [] }; visibleFilms.set(row.dataset.film, info); }
+            info.cinemas.add(cinemaLabel);
+            info.count++;
+            var timeEl = row.querySelector(".time");
+            if (timeEl) info.times.push(timeEl.textContent.trim());
+          }
         });
         group.style.display = groupHasVisible ? "" : "none";
         if (groupHasVisible) cardHasVisible = true;
@@ -604,11 +818,44 @@
 
     var visibleMovieCount = 0;
     movieCards.forEach(function (mc) {
-      var show = visibleFilms.has(mc.dataset.film);
-      mc.style.display = show ? "" : "none";
-      if (show) visibleMovieCount++;
+      var info = visibleFilms.get(mc.dataset.film);
+      mc.style.display = info ? "" : "none";
+      if (!info) return;
+      visibleMovieCount++;
+      var where = mc.querySelector(".movie-where");
+      if (where) where.innerHTML = describePlacement(info);
     });
     if (noMovieResults) noMovieResults.style.display = movieCards.length && visibleMovieCount === 0 ? "" : "none";
+    updatePanelCounts();
+    updateResetVisibility();
+    updateMap();
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  // "3 showtimes · 18:30, 21:00 · Kriterion, LAB111" -- capped so a film on at
+  // eight cinemas doesn't blow the card height out.
+  function describePlacement(info) {
+    var names = Array.from(info.cinemas).sort();
+    var shown = names.slice(0, 3).map(escapeHtml).join(", ");
+    if (names.length > 3) shown += " +" + (names.length - 3) + " more";
+    var times = info.times.slice().sort();
+    var timeBit = times.slice(0, 4).map(escapeHtml).join(", ");
+    if (times.length > 4) timeBit += " +" + (times.length - 4);
+    return "<strong>" + info.count + " showtime" + (info.count !== 1 ? "s" : "") +
+      "</strong> &middot; " + timeBit + "<br>" + shown;
+  }
+
+  function updatePanelCounts() {
+    document.querySelectorAll(".panel-count").forEach(function (el) {
+      var boxes = Array.prototype.slice.call(document.querySelectorAll("." + el.dataset.countFor));
+      var on = boxes.filter(function (b) { return b.checked; }).length;
+      el.textContent = on === boxes.length ? "(all)" : "(" + on + "/" + boxes.length + ")";
+    });
   }
 
   searchInput.addEventListener("input", function () {
@@ -722,9 +969,161 @@
       viewTabs.forEach(function (t) { t.classList.remove("active"); });
       tab.classList.add("active");
       var isMovie = tab.dataset.view === "movie";
-      cinemaView.style.display = isMovie ? "none" : "";
-      movieView.style.display = isMovie ? "" : "none";
+      // "" would fall back to the stylesheet's own default, and #movie-view's
+      // default is display:none -- so showing it needs an explicit value.
+      cinemaView.style.display = isMovie ? "none" : "block";
+      movieView.style.display = isMovie ? "block" : "none";
     });
+  });
+
+  // --- Reset filters -------------------------------------------------------
+  var allBoxes = Array.prototype.slice.call(document.querySelectorAll(".cinema-toggle, .bucket-toggle"));
+  var initialDay = state.day;
+  var resetBtn = document.getElementById("reset-btn");
+
+  function isDirty() {
+    if (state.query !== "" || state.day !== initialDay) return true;
+    if (state.minRating !== 0 || state.targetMinutes !== 0) return true;
+    return allBoxes.some(function (b) { return b.checked !== b.defaultChecked; });
+  }
+  function updateResetVisibility() {
+    if (resetBtn) resetBtn.hidden = !isDirty();
+  }
+  if (resetBtn) {
+    resetBtn.addEventListener("click", function () {
+      searchInput.value = "";
+      state.query = "";
+      ratingSlider.value = 0;
+      state.minRating = 0;
+      updateRatingSliderUI();
+      timeSlider.value = 0;
+      state.targetMinutes = 0;
+      updateTimeSliderUI();
+      dayPills.forEach(function (p) {
+        p.classList.toggle("active", p.dataset.date === initialDay);
+      });
+      state.day = initialDay;
+      allBoxes.forEach(function (b) {
+        b.checked = b.defaultChecked;
+        var set = b.classList.contains("cinema-toggle") ? state.cinemas : state.buckets;
+        if (b.checked) set.add(b.value); else set.delete(b.value);
+      });
+      applyFilters();
+    });
+  }
+
+  // --- Sticky control bar: shadow only once it's actually pinned -----------
+  var controlsEl = document.getElementById("controls");
+  if (controlsEl) {
+    var sentinel = document.createElement("div");
+    controlsEl.parentNode.insertBefore(sentinel, controlsEl);
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (entries) {
+        controlsEl.classList.toggle("stuck", !entries[0].isIntersecting);
+      }).observe(sentinel);
+    }
+    // Publish the bar's real height so the sticky cinema headers and the
+    // scroll-into-view offsets can sit just below it. It changes with viewport
+    // width (the control rows wrap), so re-measure on resize.
+    var syncControlsHeight = function () {
+      document.documentElement.style.setProperty(
+        "--controls-h", controlsEl.offsetHeight + "px");
+    };
+    syncControlsHeight();
+    window.addEventListener("resize", syncControlsHeight);
+  }
+
+  // --- Map -----------------------------------------------------------------
+  // Cinema coordinates come straight from the source APIs (Pathé and
+  // Cineville both return lat/lon on their venue records).
+  var CINEMA_GEO = [
+    {% for c in cinemas -%}
+    { name: {{ c.name | tojson }}, key: {{ c.name|lower | tojson }}, lat: {{ c.lat | tojson }}, lon: {{ c.lon | tojson }}, bike: {{ c.bike_minutes | tojson }}, km: {{ c.distance_km | tojson }} }{{ "," if not loop.last }}
+    {% endfor -%}
+  ];
+  var HOME = { lat: {{ home.lat }}, lon: {{ home.lon }} };
+
+  var mapPanel = document.getElementById("map-panel");
+  var mapCount = document.querySelector(".map-count");
+  var map = null;
+  var markerLayer = null;
+
+  // Which cinemas survive the current filters -- read off the cards so the map
+  // can never drift out of sync with the grid.
+  function visibleCinemaKeys() {
+    var keys = [];
+    document.querySelectorAll(".card").forEach(function (c) {
+      if (c.style.display !== "none") keys.push(c.dataset.cinema);
+    });
+    return keys;
+  }
+
+  function initMap() {
+    if (map || !mapPanel.open) return;
+    if (!window.L) {  // CDN blocked or offline
+      if (!document.getElementById("map-fallback")) {
+        var p = document.createElement("p");
+        p.id = "map-fallback";
+        p.textContent = "Map unavailable -- couldn't load Leaflet (no internet?).";
+        document.getElementById("cinema-map").replaceWith(p);
+      }
+      return;
+    }
+    map = L.map("cinema-map", { scrollWheelZoom: false });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+    L.circleMarker([HOME.lat, HOME.lon], {
+      radius: 8, color: "#fff", weight: 3, fillColor: "#222", fillOpacity: 1
+    }).addTo(map).bindTooltip("Home", { permanent: true, direction: "top", className: "map-pin-label" });
+    markerLayer = L.layerGroup().addTo(map);
+    drawMarkers();
+  }
+
+  function drawMarkers() {
+    if (!map || !markerLayer) return;
+    markerLayer.clearLayers();
+    var shown = visibleCinemaKeys();
+    var pts = [[HOME.lat, HOME.lon]];
+    CINEMA_GEO.forEach(function (c) {
+      if (shown.indexOf(c.key) === -1 || c.lat == null || c.lon == null) return;
+      pts.push([c.lat, c.lon]);
+      L.circleMarker([c.lat, c.lon], {
+        radius: 7, color: "#fff", weight: 2,
+        fillColor: getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#d64545",
+        fillOpacity: 1
+      }).addTo(markerLayer).bindTooltip(
+        c.name + " -- " + c.km + " km, ~" + c.bike + " min bike",
+        { direction: "top", className: "map-pin-label" }
+      );
+    });
+    if (pts.length > 1) map.fitBounds(pts, { padding: [30, 30] });
+    else map.setView([HOME.lat, HOME.lon], 13);
+  }
+
+  function updateMap() {
+    var n = visibleCinemaKeys().length;
+    if (mapCount) mapCount.textContent = "(" + n + ")";
+    drawMarkers();
+  }
+
+  if (mapPanel) {
+    mapPanel.addEventListener("toggle", function () {
+      if (!mapPanel.open) return;
+      initMap();
+      // Leaflet mis-measures a container that was display:none at init time.
+      if (map) setTimeout(function () { map.invalidateSize(); drawMarkers(); }, 0);
+    });
+  }
+
+  // --- Close filter dropdowns on outside click / Escape --------------------
+  var panels = Array.prototype.slice.call(document.querySelectorAll(".filter-panel"));
+  document.addEventListener("click", function (e) {
+    panels.forEach(function (p) { if (p.open && !p.contains(e.target)) p.open = false; });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") panels.forEach(function (p) { p.open = false; });
   });
 
   var refreshBtn = document.getElementById("refresh-btn");

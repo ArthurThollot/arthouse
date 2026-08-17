@@ -90,6 +90,8 @@ def finalize(records: list[dict], home: dict, now: datetime) -> list[dict]:
                 "is_new": _is_new_release(r.get("release_date"), now.date()),
                 "is_last_chance": bool(r.get("is_last_chance")),
                 "cinema_name": r["cinema_name"],
+                "cinema_lat": r["_lat"],
+                "cinema_lon": r["_lon"],
                 "distance_km": round(distance_km, 1),
                 "start_dt": start,
                 "day_label": start.strftime("%A %-d %B"),
@@ -161,6 +163,8 @@ def render(records: list[dict], config: dict, generated_at: datetime) -> str:
         cinemas.append(
             {
                 "name": name,
+                "lat": items[0]["cinema_lat"],
+                "lon": items[0]["cinema_lon"],
                 "distance_km": distance_km,
                 "bike_minutes": round(minutes),
                 "bucket_slug": bucket_slug,
@@ -209,6 +213,7 @@ def render(records: list[dict], config: dict, generated_at: datetime) -> str:
     template = env.get_template("agenda.html.j2")
     return template.render(
         cinemas=cinemas,
+        home=config["home"],
         distinct_films=distinct_films,
         cinema_checkbox_order=cinema_checkbox_order,
         buckets=buckets_present,
