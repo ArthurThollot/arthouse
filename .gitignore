@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Generated output and logs
+output/*.html
+*.log
+uv.lock
+ratings_cache.json
+
+# Personal config -- has your home coordinates and OMDb API key.
+# Copy config.example.yaml to config.yaml to get started.
+config.yaml

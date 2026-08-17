@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arthouse</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --accent: #d64545;
+    --border: #e2e2e2;
+    --muted: #767676;
+    --card-bg: canvas;
+    --rating-fill: #2a78d6;
+    --rating-track: color-mix(in srgb, var(--rating-fill) 22%, canvas);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --rating-fill: #3987e5; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 1.25rem 4rem;
+    line-height: 1.4;
+  }
+
+  /* Hero header -- deliberately always-dark, a fixed masthead treatment
+     rather than following the light/dark toggle used by the rest of the
+     page's functional controls. */
+  .hero {
+    margin: 0 -1.25rem 1.5rem;
+    padding: 2.4rem 1.5rem 2rem;
+    background: linear-gradient(135deg, #1a1a24 0%, #3b1620 60%, #4a1f1f 100%);
+    color: #f5f0ea;
+  }
+  .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+  .eyebrow {
+    margin: 0 0 0.15rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #d9a5a5;
+  }
+  h1 {
+    margin: 0;
+    font-family: ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+    font-weight: 600;
+    font-size: 2.1rem;
+    letter-spacing: -0.01em;
+    color: #fff;
+  }
+  .meta { color: #cfc7c0; font-size: 0.88rem; margin-top: 0.6rem; }
+  .meta a { color: inherit; }
+
+  .refresh-btn {
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.55rem 1.05rem;
+    border-radius: 999px;
+    border: 1px solid rgba(245, 240, 234, 0.35);
+    background: rgba(245, 240, 234, 0.08);
+    color: #f5f0ea;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .refresh-btn:hover:not(:disabled) { background: rgba(245, 240, 234, 0.18); }
+  .refresh-btn:disabled { opacity: 0.6; cursor: default; }
+
+  /* Functional controls -- respect light/dark like the rest of the page */
+  .controls { padding-top: 0.25rem; }
+
+  /* View tabs */
+  .view-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
+  .view-tab {
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .view-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  #filter {
+    width: 100%;
+    font-size: 1rem;
+    padding: 0.6rem 0.8rem;
+    margin: 0 0 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card-bg);
+    color: inherit;
+  }
+
+  /* Day pills */
+  .day-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.9rem; }
+  .pill {
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: inherit;
+    cursor: pointer;
+  }
+  .pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* Sliders -- shared styling, each instance sets --slider-fill/--slider-track inline */
+  .slider-filter {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-bottom: 0.85rem;
+    font-size: 0.85rem;
+  }
+  .slider-filter label { white-space: nowrap; }
+  .slider-value { font-weight: 600; display: inline-block; min-width: 4.5em; }
+  .range-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 220px;
+    max-width: 50vw;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(to right, var(--slider-fill) 0%, var(--slider-fill) var(--pct, 0%), var(--slider-track) var(--pct, 0%), var(--slider-track) 100%);
+    cursor: pointer;
+  }
+  .range-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--slider-fill);
+    border: 2px solid var(--card-bg);
+    box-shadow: 0 0 0 1px var(--border);
+    margin-top: -5px;
+  }
+  .range-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--slider-fill);
+    border: 2px solid var(--card-bg);
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  .range-slider::-moz-range-track { height: 6px; border-radius: 3px; background: transparent; }
+
+  /* Cinema / bucket filter panels */
+  .filter-panels { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1.5rem; }
+  .filter-panel {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0;
+  }
+  .filter-panel summary {
+    cursor: pointer;
+    padding: 0.45rem 0.8rem;
+    font-size: 0.85rem;
+    list-style: none;
+  }
+  .filter-panel summary::-webkit-details-marker { display: none; }
+  .filter-panel summary::after { content: " \25be"; color: var(--muted); }
+  .filter-panel[open] summary::after { content: " \25b4"; }
+  .filter-panel-body {
+    padding: 0.5rem 0.8rem 0.7rem;
+    border-top: 1px solid var(--border);
+    max-height: 300px;
+    overflow-y: auto;
+    min-width: 210px;
+  }
+  .filter-panel-actions { margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+  .filter-panel-actions button {
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--accent);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+  .sort-toggle { display: flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+  .sort-btn {
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.9rem;
+    border: none;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .sort-btn.active { background: var(--accent); color: #fff; }
+  .cinema-divider {
+    border: none;
+    border-top: 1px dashed var(--border);
+    margin: 0.4rem 0;
+  }
+  .filter-panel label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    padding: 0.15rem 0;
+    white-space: nowrap;
+  }
+
+  /* Badges (New / Last chance) */
+  .badge {
+    font-size: 0.66rem;
+    font-weight: 700;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    margin-right: 0.35rem;
+    white-space: nowrap;
+    display: inline-block;
+    letter-spacing: 0.02em;
+  }
+  .badge-new { background: color-mix(in srgb, var(--rating-fill) 20%, canvas); color: var(--rating-fill); }
+  .badge-last { background: color-mix(in srgb, var(--accent) 20%, canvas); color: var(--accent); }
+
+  /* By-cinema view */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+    align-items: start;
+  }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card-bg);
+    overflow: hidden;
+  }
+  .card > details > summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 0.9rem 1rem 0.7rem;
+  }
+  .card > details > summary::-webkit-details-marker { display: none; }
+  .card summary .head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+  .card h2 { font-size: 1.05rem; margin: 0; font-family: inherit; }
+  .card .twisty { color: var(--muted); font-size: 0.9rem; flex-shrink: 0; }
+  .card details[open] .twisty::before { content: "\25be"; }
+  .card details:not([open]) .twisty::before { content: "\25b8"; }
+  .card .sub {
+    color: var(--muted);
+    font-size: 0.82rem;
+    margin-top: 0.15rem;
+  }
+  .card .body { padding: 0 1rem 1rem; }
+  .day-group { margin-top: 0.6rem; }
+  .day-group:first-of-type { margin-top: 0; }
+  .day-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+  }
+  .showtime {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .showtime:last-child { border-bottom: none; }
+  .showtime .time { font-weight: 600; white-space: nowrap; width: 3rem; flex-shrink: 0; padding-top: 0.05rem; }
+  .showtime .film-col { flex: 1; min-width: 0; }
+  .showtime .film { display: block; }
+  .showtime .lang { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+  a.book { text-decoration: none; color: var(--accent); }
+  a.book:hover { text-decoration: underline; }
+
+  .film-details > summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  .film-details > summary::-webkit-details-marker { display: none; }
+  .film-details > summary .film { text-decoration: underline dotted; text-underline-offset: 3px; text-decoration-color: var(--muted); }
+  .film-expanded {
+    display: flex;
+    gap: 0.6rem;
+    margin: 0.5rem 0 0.3rem;
+    padding: 0.5rem;
+    background: color-mix(in srgb, var(--muted) 10%, canvas);
+    border-radius: 6px;
+  }
+  .film-expanded img {
+    width: 56px;
+    height: 84px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+    background: var(--border);
+  }
+  .film-meta { min-width: 0; }
+  .film-desc {
+    margin: 0 0 0.35rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+  .film-credit {
+    margin: 0.15rem 0 0;
+    font-size: 0.76rem;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+  .film-credit strong { color: inherit; font-weight: 600; }
+
+  .rating { display: flex; align-items: center; gap: 0.35rem; margin-top: 0.15rem; }
+  .rating-track {
+    width: 46px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--rating-track);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .rating-fill { display: block; height: 100%; background: var(--rating-fill); border-radius: 3px; }
+  .rating-value { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+
+  .empty, #no-results, #no-movie-results { color: var(--muted); font-style: italic; margin-top: 2rem; }
+  #no-results, #no-movie-results { display: none; }
+
+  /* By-movie view -- big posters, HBO-style browse grid */
+  #movie-view { display: none; }
+  .movie-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 1.4rem;
+  }
+  .movie-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card-bg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .movie-card .poster-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .movie-card .poster-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .movie-card .poster-badges {
+    position: absolute;
+    top: 0.45rem;
+    left: 0.45rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    align-items: flex-start;
+  }
+  .movie-card .movie-info { padding: 0.8rem 0.9rem 1rem; }
+  .movie-card h3 { margin: 0 0 0.25rem; font-size: 1.02rem; font-family: inherit; }
+  .movie-card .movie-sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.5rem; }
+  .movie-card .film-desc { margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+<div class="hero">
+  <div class="hero-top">
+    <div>
+      <p class="eyebrow">Amsterdam</p>
+      <h1>Arthouse</h1>
+    </div>
+    <button type="button" id="refresh-btn" class="refresh-btn">&#8635; Refresh</button>
+  </div>
+  <div class="meta">
+    Within {{ radius_km }} km of home &middot; <span id="total-count">{{ total_count }}</span> showtimes across <span id="total-cinemas">{{ cinemas|length }}</span> cinemas
+    &middot; generated {{ generated_at }}
+  </div>
+</div>
+
+<div class="controls">
+  <div class="view-tabs">
+    <button type="button" class="view-tab active" data-view="cinema">&#127916; By Cinema</button>
+    <button type="button" class="view-tab" data-view="movie">&#127871; By Movie</button>
+  </div>
+
+  <input id="filter" type="search" placeholder="&#128269; Filter by film or cinema&hellip;" autocomplete="off">
+
+  <div class="day-pills" id="day-pills">
+    {% for day in day_pills %}
+    <button type="button" class="pill{{ ' active' if day.date == today_iso }}" data-date="{{ day.date }}">{{ day.label }}</button>
+    {% endfor %}
+  </div>
+
+  <div class="slider-filter">
+    <label for="rating-slider">&#11088; Min IMDb rating: <span id="rating-slider-value" class="slider-value">Any</span></label>
+    <input type="range" id="rating-slider" class="range-slider" style="--slider-fill: var(--rating-fill); --slider-track: var(--rating-track);" min="0" max="10" step="0.1" value="0">
+  </div>
+
+  <div class="slider-filter">
+    <label for="time-slider"><span id="time-emoji">&#128336;</span> Around: <span id="time-slider-value" class="slider-value">Any time</span></label>
+    <input type="range" id="time-slider" class="range-slider" style="--slider-fill: var(--accent); --slider-track: color-mix(in srgb, var(--accent) 20%, canvas);" min="0" max="1439" step="15" value="0">
+  </div>
+
+  <div class="filter-panels">
+    <details class="filter-panel" id="cinema-panel">
+      <summary>&#127916; Cinemas</summary>
+      <div class="filter-panel-body">
+        <div class="filter-panel-actions">
+          <button type="button" data-action="all">All</button><button type="button" data-action="none">None</button>
+          <span class="sort-toggle">
+            <button type="button" class="sort-btn active" data-sort="distance">Distance</button><button type="button" class="sort-btn" data-sort="az">A-Z</button>
+          </span>
+        </div>
+        {% for cinema in cinema_checkbox_order %}
+        {% if cinema.default_off and not loop.previtem.default_off %}
+        <hr class="cinema-divider">
+        {% endif %}
+        <label data-name="{{ cinema.name|lower }}" data-distance-order="{{ loop.index0 }}">
+          <input type="checkbox" class="cinema-toggle" value="{{ cinema.name|lower }}"{{ "" if cinema.default_off else " checked" }}> {{ cinema.name }}
+        </label>
+        {% endfor %}
+      </div>
+    </details>
+
+    <details class="filter-panel" id="bucket-panel">
+      <summary>&#128692; Bike time</summary>
+      <div class="filter-panel-body">
+        <div class="filter-panel-actions">
+          <button type="button" data-action="all">All</button><button type="button" data-action="none">None</button>
+        </div>
+        {% for slug, label in buckets %}
+        <label><input type="checkbox" class="bucket-toggle" value="{{ slug }}" checked> {{ label }}</label>
+        {% endfor %}
+      </div>
+    </details>
+  </div>
+</div>
+
+{% if not cinemas %}
+<p class="empty">No showtimes found. Check config.yaml (radius, allowed_languages, sources) or rerun later.</p>
+{% endif %}
+
+<div id="cinema-view">
+  <div class="grid" id="grid">
+    {% for cinema in cinemas %}
+    <div class="card" data-cinema="{{ cinema.name|lower }}" data-bucket="{{ cinema.bucket_slug }}">
+      <details open>
+        <summary>
+          <div class="head">
+            <h2>{{ cinema.name }}</h2>
+            <span class="twisty"></span>
+          </div>
+          <div class="sub">{{ cinema.distance_km }} km &middot; ~{{ cinema.bike_minutes }} min bike &middot; <span class="count-label">{{ cinema.count_today }} showtime{{ "s" if cinema.count_today != 1 }}</span></div>
+        </summary>
+        <div class="body">
+          {% for day in cinema.days %}
+          <div class="day-group" data-date="{{ day.date }}">
+            <div class="day-label">{{ day.label }}</div>
+            {% for s in day.showtimes %}
+            <div class="showtime" data-film="{{ s.film_title|lower }}" data-rating="{{ s.imdb_rating if s.imdb_rating else '' }}" data-minutes="{{ s.minutes_of_day }}">
+              <span class="time">
+                {% if s.booking_url %}<a class="book" href="{{ s.booking_url }}">{{ s.time_label }}</a>{% else %}{{ s.time_label }}{% endif %}
+              </span>
+              <div class="film-col">
+                <details class="film-details">
+                  <summary>
+                    {% if s.is_new %}<span class="badge badge-new">&#127381; New</span>{% endif %}
+                    {% if s.is_last_chance %}<span class="badge badge-last">&#8987; Last chance</span>{% endif %}
+                    <span class="film">{{ s.film_title }} <span class="lang">{{ s.language_tag }}</span></span>
+                  </summary>
+                  <div class="film-expanded">
+                    {% if s.poster_url %}<img src="{{ s.poster_url }}" alt="" loading="lazy">{% endif %}
+                    <div class="film-meta">
+                      <p class="film-desc">{{ s.description or "No description available." }}</p>
+                      {% if s.genre or s.runtime_minutes %}
+                      <p class="film-credit">{{ s.genre }}{{ " · " if s.genre and s.runtime_minutes }}{{ (s.runtime_minutes ~ " min") if s.runtime_minutes }}</p>
+                      {% endif %}
+                      {% if s.director %}<p class="film-credit"><strong>Director:</strong> {{ s.director }}</p>{% endif %}
+                      {% if s.cast %}<p class="film-credit"><strong>Cast:</strong> {{ s.cast }}</p>{% endif %}
+                    </div>
+                  </div>
+                </details>
+                {% if s.imdb_rating %}
+                <span class="rating" title="IMDb {{ s.imdb_rating }}/10">
+                  <span class="rating-track"><span class="rating-fill" style="width: {{ (s.imdb_rating * 10)|round(0, 'floor')|int }}%"></span></span>
+                  <span class="rating-value">{{ s.imdb_rating }}</span>
+                </span>
+                {% endif %}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+    </div>
+    {% endfor %}
+  </div>
+  <p id="no-results">No showtimes match the current filters.</p>
+</div>
+
+<div id="movie-view">
+  <div class="movie-grid" id="movie-grid">
+    {% for f in distinct_films %}
+    <div class="movie-card" data-film="{{ f.film_title|lower }}">
+      <div class="poster-wrap">
+        {% if f.poster_url %}<img src="{{ f.poster_url }}" alt="" loading="lazy">{% endif %}
+        <div class="poster-badges">
+          {% if f.is_new %}<span class="badge badge-new">&#127381; New</span>{% endif %}
+          {% if f.is_last_chance %}<span class="badge badge-last">&#8987; Last chance</span>{% endif %}
+        </div>
+      </div>
+      <div class="movie-info">
+        <h3>{{ f.film_title }}</h3>
+        <div class="movie-sub">
+          {{ f.language_tag }}{{ " · " ~ f.genre if f.genre }}{{ (" · " ~ f.runtime_minutes ~ " min") if f.runtime_minutes }}
+        </div>
+        {% if f.imdb_rating %}
+        <span class="rating" title="IMDb {{ f.imdb_rating }}/10">
+          <span class="rating-track"><span class="rating-fill" style="width: {{ (f.imdb_rating * 10)|round(0, 'floor')|int }}%"></span></span>
+          <span class="rating-value">{{ f.imdb_rating }}</span>
+        </span>
+        {% endif %}
+        <p class="film-desc">{{ f.description_full or "No description available." }}</p>
+        {% if f.director %}<p class="film-credit"><strong>Director:</strong> {{ f.director }}</p>{% endif %}
+        {% if f.cast %}<p class="film-credit"><strong>Cast:</strong> {{ f.cast }}</p>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <p id="no-movie-results" class="empty">No films match the current filters.</p>
+</div>
+
+<script>
+(function () {
+  var searchInput = document.getElementById("filter");
+  var dayPills = Array.prototype.slice.call(document.querySelectorAll("#day-pills .pill"));
+  var cards = Array.prototype.slice.call(document.querySelectorAll(".card"));
+  var movieCards = Array.prototype.slice.call(document.querySelectorAll(".movie-card"));
+  var noResults = document.getElementById("no-results");
+  var noMovieResults = document.getElementById("no-movie-results");
+  var totalCountEl = document.getElementById("total-count");
+  var totalCinemasEl = document.getElementById("total-cinemas");
+  var ratingSlider = document.getElementById("rating-slider");
+  var ratingValueEl = document.getElementById("rating-slider-value");
+  var timeSlider = document.getElementById("time-slider");
+  var timeValueEl = document.getElementById("time-slider-value");
+  var timeEmojiEl = document.getElementById("time-emoji");
+
+  var state = {
+    query: "",
+    day: document.querySelector("#day-pills .pill.active") ? document.querySelector("#day-pills .pill.active").dataset.date : null,
+    minRating: 0,
+    targetMinutes: 0,
+    cinemas: new Set(Array.prototype.slice.call(document.querySelectorAll(".cinema-toggle")).filter(function (c) { return c.checked; }).map(function (c) { return c.value; })),
+    buckets: new Set(Array.prototype.slice.call(document.querySelectorAll(".bucket-toggle")).filter(function (c) { return c.checked; }).map(function (c) { return c.value; })),
+  };
+
+  function applyFilters() {
+    var visibleCards = 0;
+    var grandTotal = 0;
+    var visibleFilms = new Set();
+
+    cards.forEach(function (card) {
+      var cinemaOk = state.cinemas.has(card.dataset.cinema);
+      var bucketOk = state.buckets.has(card.dataset.bucket);
+      var cinemaNameMatches = card.dataset.cinema.indexOf(state.query) !== -1;
+      var cardHasVisible = false;
+      var cardVisibleCount = 0;
+
+      card.querySelectorAll(".day-group").forEach(function (group) {
+        var dayOk = cinemaOk && bucketOk && group.dataset.date === state.day;
+        var groupHasVisible = false;
+        group.querySelectorAll(".showtime").forEach(function (row) {
+          var textOk = state.query === "" || cinemaNameMatches || row.dataset.film.indexOf(state.query) !== -1;
+          var ratingOk = state.minRating === 0 || (row.dataset.rating !== "" && parseFloat(row.dataset.rating) >= state.minRating);
+          var timeOk = state.targetMinutes === 0 || Math.abs(parseInt(row.dataset.minutes, 10) - state.targetMinutes) <= 60;
+          var show = dayOk && textOk && ratingOk && timeOk;
+          row.style.display = show ? "" : "none";
+          if (show) { groupHasVisible = true; cardVisibleCount++; visibleFilms.add(row.dataset.film); }
+        });
+        group.style.display = groupHasVisible ? "" : "none";
+        if (groupHasVisible) cardHasVisible = true;
+      });
+
+      var countLabel = card.querySelector(".count-label");
+      if (countLabel) countLabel.textContent = cardVisibleCount + " showtime" + (cardVisibleCount !== 1 ? "s" : "");
+
+      card.style.display = cardHasVisible ? "" : "none";
+      if (cardHasVisible) { visibleCards++; grandTotal += cardVisibleCount; }
+    });
+
+    noResults.style.display = visibleCards === 0 ? "" : "none";
+    if (totalCountEl) totalCountEl.textContent = grandTotal;
+    if (totalCinemasEl) totalCinemasEl.textContent = visibleCards;
+
+    var visibleMovieCount = 0;
+    movieCards.forEach(function (mc) {
+      var show = visibleFilms.has(mc.dataset.film);
+      mc.style.display = show ? "" : "none";
+      if (show) visibleMovieCount++;
+    });
+    if (noMovieResults) noMovieResults.style.display = movieCards.length && visibleMovieCount === 0 ? "" : "none";
+  }
+
+  searchInput.addEventListener("input", function () {
+    state.query = searchInput.value.trim().toLowerCase();
+    applyFilters();
+  });
+
+  dayPills.forEach(function (pill) {
+    pill.addEventListener("click", function () {
+      dayPills.forEach(function (p) { p.classList.remove("active"); });
+      pill.classList.add("active");
+      state.day = pill.dataset.date;
+      applyFilters();
+    });
+  });
+
+  function updateRatingSliderUI() {
+    var v = parseFloat(ratingSlider.value);
+    ratingSlider.style.setProperty("--pct", (v / 10 * 100) + "%");
+    ratingValueEl.textContent = v === 0 ? "Any" : v.toFixed(1);
+  }
+  ratingSlider.addEventListener("input", function () {
+    state.minRating = parseFloat(ratingSlider.value);
+    updateRatingSliderUI();
+    applyFilters();
+  });
+  updateRatingSliderUI();
+
+  // Unicode clock-face emoji matching the selected time (🕐...🕧), just for fun.
+  function clockEmoji(minutes) {
+    var h = Math.floor(minutes / 60) % 12;
+    var isHalf = (minutes % 60) >= 30;
+    var index = h === 0 ? 11 : h - 1;
+    var base = isHalf ? 0x1F55C : 0x1F550;
+    return String.fromCodePoint(base + index);
+  }
+  function formatClock(minutes) {
+    var h = Math.floor(minutes / 60), m = minutes % 60;
+    return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+  }
+  function updateTimeSliderUI() {
+    var v = parseInt(timeSlider.value, 10);
+    timeSlider.style.setProperty("--pct", (v / 1439 * 100) + "%");
+    if (v === 0) {
+      timeValueEl.textContent = "Any time";
+      timeEmojiEl.textContent = "\u{1F550}";
+    } else {
+      timeValueEl.textContent = "~" + formatClock(v);
+      timeEmojiEl.textContent = clockEmoji(v);
+    }
+  }
+  timeSlider.addEventListener("input", function () {
+    state.targetMinutes = parseInt(timeSlider.value, 10);
+    updateTimeSliderUI();
+    applyFilters();
+  });
+  updateTimeSliderUI();
+
+  function wireCheckboxGroup(panelId, checkboxClass, targetSet) {
+    var panel = document.getElementById(panelId);
+    var boxes = Array.prototype.slice.call(panel.querySelectorAll("." + checkboxClass));
+    boxes.forEach(function (box) {
+      box.addEventListener("change", function () {
+        if (box.checked) targetSet.add(box.value); else targetSet.delete(box.value);
+        applyFilters();
+      });
+    });
+    panel.querySelectorAll(".filter-panel-actions > button").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var check = btn.dataset.action === "all";
+        boxes.forEach(function (box) {
+          box.checked = check;
+          if (check) targetSet.add(box.value); else targetSet.delete(box.value);
+        });
+        applyFilters();
+      });
+    });
+  }
+
+  function wireSortToggle(panelId) {
+    var panel = document.getElementById(panelId);
+    var body = panel.querySelector(".filter-panel-body");
+    var labels = Array.prototype.slice.call(body.querySelectorAll("label"));
+    var buttons = Array.prototype.slice.call(panel.querySelectorAll(".sort-btn"));
+    if (!buttons.length) return;
+    buttons.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        buttons.forEach(function (b) { b.classList.remove("active"); });
+        btn.classList.add("active");
+        var sorted = labels.slice().sort(function (a, b) {
+          if (btn.dataset.sort === "az") {
+            return a.dataset.name.localeCompare(b.dataset.name);
+          }
+          return parseInt(a.dataset.distanceOrder, 10) - parseInt(b.dataset.distanceOrder, 10);
+        });
+        sorted.forEach(function (label) { body.appendChild(label); });
+        panel.querySelectorAll(".cinema-divider").forEach(function (hr) { hr.remove(); });
+      });
+    });
+  }
+
+  wireCheckboxGroup("cinema-panel", "cinema-toggle", state.cinemas);
+  wireCheckboxGroup("bucket-panel", "bucket-toggle", state.buckets);
+  wireSortToggle("cinema-panel");
+
+  var viewTabs = Array.prototype.slice.call(document.querySelectorAll(".view-tab"));
+  var cinemaView = document.getElementById("cinema-view");
+  var movieView = document.getElementById("movie-view");
+  viewTabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      viewTabs.forEach(function (t) { t.classList.remove("active"); });
+      tab.classList.add("active");
+      var isMovie = tab.dataset.view === "movie";
+      cinemaView.style.display = isMovie ? "none" : "";
+      movieView.style.display = isMovie ? "" : "none";
+    });
+  });
+
+  var refreshBtn = document.getElementById("refresh-btn");
+  if (refreshBtn) {
+    if (location.protocol === "file:") {
+      // Opened the file directly rather than via ./run.sh -- there's no
+      // server behind /refresh, so don't let the user click into a
+      // failure. Explain up front instead.
+      refreshBtn.disabled = true;
+      refreshBtn.title = "Only works when served via ./run.sh (not when opening this file directly)";
+    } else {
+      refreshBtn.addEventListener("click", function () {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "Refreshing…";
+        fetch("/refresh", { method: "POST" })
+          .then(function (r) {
+            if (!r.ok) throw new Error("refresh failed");
+            location.reload();
+          })
+          .catch(function () {
+            refreshBtn.disabled = false;
+            refreshBtn.innerHTML = "&#8635; Refresh";
+            alert("Refresh failed -- is ./run.sh still running in a terminal?");
+          });
+      });
+    }
+  }
+
+  applyFilters();
+})();
+</script>
+
+</body>
+</html>

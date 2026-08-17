@@ -1,0 +1,57 @@
+# Copy this file to config.yaml and fill in your own values.
+# config.yaml is gitignored (it ends up holding your home coordinates and
+# your OMDb API key) -- this example file is the one that's checked in.
+
+# Home location the radius is measured from.
+# Default: Sloterdijk station, Amsterdam. Update to your exact address's
+# coordinates for more precision (e.g. via https://www.openstreetmap.org,
+# right-click a spot -> "Show address").
+home:
+  lat: 52.3886
+  lon: 4.8369
+
+# How far out to look, in kilometers.
+radius_km: 5
+
+# Assumed average cycling speed, used only to convert distance into a rough
+# "biking time" bucket shown on the page (straight-line distance / speed,
+# not a routed cycling time -- treat it as a guide, not a promise).
+biking_speed_kmh: 15
+
+# How many days ahead to fetch showtimes for. The page defaults to showing
+# just today (there's a day filter to look further ahead) but this controls
+# how much gets fetched in the first place. Hard-capped at 7 in build.py
+# regardless of what's set here.
+days_ahead: 7
+
+# A screening is kept only if its spoken-language matches one of these
+# (ISO 639-1 codes). This intentionally excludes Dutch ("nl") screenings
+# and films whose original language isn't in this list, even if dubbed
+# or subtitled into a language you'd otherwise accept.
+allowed_languages:
+  - en
+  - fr
+  - es
+
+# Which sources to pull from. Vue is the most fragile (see README) --
+# set to false if it starts failing and you'd rather not deal with it.
+sources:
+  pathe: true
+  cineville: true
+  vue: true
+
+# Cinema slugs/ids to always exclude even if within radius (leave empty
+# to include everything in range). Unlike default_off_cinemas below, these
+# are never fetched at all and never show up as a toggleable option.
+excluded_cinemas: []
+
+# Cinema names (case-insensitive, must match exactly) that should still be
+# fetched and shown as an option in the Cinemas filter, but start unchecked
+# and sorted to the bottom of that list -- for cinemas you rarely go to but
+# don't want to fully exclude.
+default_off_cinemas: []
+
+# Free API key from https://www.omdbapi.com/apikey.aspx (instant signup, no
+# cost for personal use, 1000 lookups/day) -- used to show each film's IMDb
+# rating. Leave blank to skip ratings entirely; nothing else breaks.
+omdb_api_key: ""
