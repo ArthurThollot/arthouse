@@ -15,6 +15,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 import ratings
+import stations
 from geo import BIKE_BUCKETS, bike_bucket, bike_minutes, haversine_km
 from sources import cineville, pathe, vue
 
@@ -47,7 +48,25 @@ def _truncate(text: str | None, max_chars: int) -> str | None:
 
 def load_config(path: Path) -> dict:
     with open(path) as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f)
+    resolve_home(config)
+    return config
+
+
+def resolve_home(config: dict) -> None:
+    """Let home be given as a metro stop instead of coordinates.
+
+    Explicit lat/lon always wins -- home.station is the convenience path for
+    people who don't know their coordinates and don't care to look them up.
+    """
+    home = config.setdefault("home", {})
+    if home.get("lat") is not None and home.get("lon") is not None:
+        return
+    station = home.get("station")
+    if not station:
+        raise ValueError("config.yaml needs either home.lat + home.lon, or home.station")
+    home["lat"], home["lon"] = stations.resolve(station)
+    print(f"[home] anchored on {station} ({home['lat']}, {home['lon']})")
 
 
 def fetch_all(config: dict) -> list[dict]:
@@ -194,9 +213,18 @@ def render(records: list[dict], config: dict, generated_at: datetime) -> str:
         {"name": c["name"], "default_off": True} for c in cinemas if c["name"].lower() in default_off
     ]
 
-    bucket_order = [(slug, label) for _, slug, label in BIKE_BUCKETS]
+    # Offer every bucket any *offerable* home station could put a cinema in,
+    # not just the ones the configured home lands on. The page lets you switch
+    # station client-side; a cinema that moved into a bucket with no checkbox
+    # would silently vanish from the grid.
     used_buckets = {c["bucket_slug"] for c in cinemas}
-    buckets_present = [(slug, label) for slug, label in bucket_order if slug in used_buckets]
+    for _, lat, lon in stations.all_stations():
+        for c in cinemas:
+            km = haversine_km(lat, lon, c["lat"], c["lon"])
+            used_buckets.add(bike_bucket(bike_minutes(km, speed_kmh))[0])
+    buckets_present = [
+        (slug, label) for _, slug, label in BIKE_BUCKETS if slug in used_buckets
+    ]
 
     day_pills = []
     for i in range(config["days_ahead"]):
@@ -214,6 +242,15 @@ def render(records: list[dict], config: dict, generated_at: datetime) -> str:
     return template.render(
         cinemas=cinemas,
         home=config["home"],
+        home_station=config["home"].get("station"),
+        stations=stations.STATIONS,
+        biking_speed_kmh=speed_kmh,
+        # Thresholds the page needs to re-bucket cinemas client-side when you
+        # switch home station. inf -> None so it survives tojson.
+        bike_bucket_bounds=[
+            {"upper": None if upper == float("inf") else upper, "slug": slug}
+            for upper, slug, _ in BIKE_BUCKETS
+        ],
         distinct_films=distinct_films,
         cinema_checkbox_order=cinema_checkbox_order,
         buckets=buckets_present,

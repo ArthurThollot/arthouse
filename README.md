@@ -86,9 +86,19 @@ cp config.example.yaml config.yaml
 
 Fields:
 
-- `home.lat` / `home.lon` -- defaults to Sloterdijk station. For more
-  precision, look up your address at openstreetmap.org (right-click a spot
-  -> "Show address" gives you the coordinates).
+- `home.station` -- an Amsterdam metro/rail stop to measure from, e.g.
+  `De Pijp`. The easy option: no coordinate hunting. Full list in
+  `stations.py`. Unknown names fail the build loudly rather than silently
+  falling back.
+- `home.lat` / `home.lon` -- exact coordinates, and they win over
+  `home.station` if both are set. Defaults to Sloterdijk station. Look up
+  your address at openstreetmap.org (right-click a spot -> "Show address").
+
+  The generated page also has a **Measure from** dropdown offering the same
+  stations, so you can re-rank the cinemas from someone else's doorstep
+  without rebuilding. That only re-measures the cinemas already on the page
+  -- which ones got fetched at all is fixed by `radius_km` around the
+  config home, so to genuinely relocate, change the config and rebuild.
 - `radius_km` -- how far out to look.
 - `biking_speed_kmh` -- assumed average cycling speed, used only to turn
   distance into the "biking time" shown/filtered on the page. Straight-line

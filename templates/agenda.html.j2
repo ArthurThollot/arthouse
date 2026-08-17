@@ -510,6 +510,23 @@
     border-radius: 4px;
   }
 
+  /* --- Home station picker ------------------------------------------------
+     Re-measures the already-fetched cinemas from a different starting point.
+     It cannot widen the search -- that's bounded by radius_km at build time. */
+  .home-picker {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    margin-top: 0.7rem; font-size: 0.85rem; color: var(--muted);
+  }
+  .home-picker select {
+    font: inherit; font-size: 0.85rem; color: inherit;
+    padding: 0.32rem 0.6rem; border: 1px solid var(--border);
+    border-radius: 999px; background: var(--card-bg); cursor: pointer;
+  }
+  .home-picker select:hover, .home-picker select:focus-visible {
+    color: var(--accent); border-color: var(--accent);
+  }
+  .home-hint { cursor: help; opacity: 0.7; }
+
   /* --- Map ---------------------------------------------------------------
      Collapsed by default so it never costs vertical space you didn't ask
      for; Leaflet is only booted the first time it's opened. */
@@ -570,8 +587,22 @@
     <button type="button" id="refresh-btn" class="refresh-btn">&#8635; Refresh</button>
   </div>
   <div class="meta">
-    Within {{ radius_km }} km of home &middot; <span id="total-count">{{ total_count }}</span> showtimes across <span id="total-cinemas">{{ cinemas|length }}</span> cinemas
+    <span id="home-blurb">Within {{ radius_km }} km of home</span> &middot; <span id="total-count">{{ total_count }}</span> showtimes across <span id="total-cinemas">{{ cinemas|length }}</span> cinemas
     &middot; generated {{ generated_at }}
+  </div>
+  <div class="home-picker">
+    <label for="home-station">&#128647; Measure from</label>
+    <select id="home-station">
+      <option value="">Home (config.yaml)</option>
+      {% for group, stops in stations.items() %}
+      <optgroup label="{{ group }}">
+        {% for name, lat, lon in stops %}
+        <option value="{{ name }}" data-lat="{{ lat }}" data-lon="{{ lon }}"{{ " selected" if home_station and name|lower == home_station|lower }}>{{ name }}</option>
+        {% endfor %}
+      </optgroup>
+      {% endfor %}
+    </select>
+    <span class="home-hint" title="Cinemas were fetched within {{ radius_km }} km of the address in config.yaml. Switching stations re-measures those cinemas; it doesn't go find new ones.">&#9432;</span>
   </div>
   <details class="map-panel" id="map-panel">
     <summary>&#128506;&#65039; Map <span class="map-count"></span></summary>
@@ -658,7 +689,7 @@
             <h2>{{ cinema.name }}</h2>
             <span class="twisty"></span>
           </div>
-          <div class="sub">{{ cinema.distance_km }} km &middot; ~{{ cinema.bike_minutes }} min bike &middot; <span class="count-label">{{ cinema.count_today }} showtime{{ "s" if cinema.count_today != 1 }}</span></div>
+          <div class="sub"><span class="dist-label">{{ cinema.distance_km }} km &middot; ~{{ cinema.bike_minutes }} min bike</span> &middot; <span class="count-label">{{ cinema.count_today }} showtime{{ "s" if cinema.count_today != 1 }}</span></div>
         </summary>
         <div class="body">
           {% for day in cinema.days %}
@@ -1041,12 +1072,13 @@
     { name: {{ c.name | tojson }}, key: {{ c.name|lower | tojson }}, lat: {{ c.lat | tojson }}, lon: {{ c.lon | tojson }}, bike: {{ c.bike_minutes | tojson }}, km: {{ c.distance_km | tojson }} }{{ "," if not loop.last }}
     {% endfor -%}
   ];
-  var HOME = { lat: {{ home.lat }}, lon: {{ home.lon }} };
+  var HOME = { lat: {{ home.lat }}, lon: {{ home.lon }}, label: {{ (home_station or "Home") | tojson }} };
 
   var mapPanel = document.getElementById("map-panel");
   var mapCount = document.querySelector(".map-count");
   var map = null;
   var markerLayer = null;
+  var homeMarker = null;
 
   // Which cinemas survive the current filters -- read off the cards so the map
   // can never drift out of sync with the grid.
@@ -1074,9 +1106,9 @@
       maxZoom: 18,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(map);
-    L.circleMarker([HOME.lat, HOME.lon], {
+    homeMarker = L.circleMarker([HOME.lat, HOME.lon], {
       radius: 8, color: "#fff", weight: 3, fillColor: "#222", fillOpacity: 1
-    }).addTo(map).bindTooltip("Home", { permanent: true, direction: "top", className: "map-pin-label" });
+    }).addTo(map).bindTooltip(HOME.label, { permanent: true, direction: "top", className: "map-pin-label" });
     markerLayer = L.layerGroup().addTo(map);
     drawMarkers();
   }
@@ -1115,6 +1147,121 @@
       // Leaflet mis-measures a container that was display:none at init time.
       if (map) setTimeout(function () { map.invalidateSize(); drawMarkers(); }, 0);
     });
+  }
+
+  // --- Home station picker -------------------------------------------------
+  // Re-measures the cinemas we already have from a different starting point.
+  // It can't fetch new ones: the set on this page was bounded by radius_km
+  // around the config home at build time. Everything derived from distance --
+  // the km/bike line, the bike-time bucket, grid order, the map -- is
+  // recomputed here rather than re-rendered, so the page stays static.
+  var BIKE_BOUNDS = {{ bike_bucket_bounds | tojson }};
+  var BIKE_SPEED_KMH = {{ biking_speed_kmh | tojson }};
+  var HOME_STORAGE_KEY = "arthouse.homeStation";
+  var CONFIG_HOME = { lat: {{ home.lat }}, lon: {{ home.lon }}, label: {{ (home_station or "Home") | tojson }} };
+  var stationSelect = document.getElementById("home-station");
+  var homeBlurb = document.getElementById("home-blurb");
+  var geoByKey = {};
+  CINEMA_GEO.forEach(function (c) { geoByKey[c.key] = c; });
+
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    var toRad = Math.PI / 180;
+    var dLat = (lat2 - lat1) * toRad, dLon = (lon2 - lon1) * toRad;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return 2 * 6371 * Math.asin(Math.sqrt(a));
+  }
+
+  function bucketFor(minutes) {
+    for (var i = 0; i < BIKE_BOUNDS.length; i++) {
+      if (BIKE_BOUNDS[i].upper === null || minutes < BIKE_BOUNDS[i].upper) {
+        return BIKE_BOUNDS[i].slug;
+      }
+    }
+    return BIKE_BOUNDS[BIKE_BOUNDS.length - 1].slug;
+  }
+
+  function setHome(lat, lon, label) {
+    HOME.lat = lat; HOME.lon = lon; HOME.label = label;
+
+    CINEMA_GEO.forEach(function (c) {
+      if (c.lat == null || c.lon == null) return;
+      var minutes = haversineKm(lat, lon, c.lat, c.lon) / BIKE_SPEED_KMH * 60;
+      c.km = Math.round(haversineKm(lat, lon, c.lat, c.lon) * 10) / 10;
+      c.bike = Math.round(minutes);
+      c.bucket = bucketFor(minutes);
+    });
+
+    var ranked = CINEMA_GEO.filter(function (c) { return c.lat != null; })
+                           .slice().sort(function (a, b) { return a.km - b.km; });
+    ranked.forEach(function (c, i) { c.rank = i; });
+
+    cards.forEach(function (card) {
+      var geo = geoByKey[card.dataset.cinema];
+      if (!geo || geo.km == null) return;
+      card.dataset.bucket = geo.bucket;
+      card.style.order = geo.rank;
+      var dist = card.querySelector(".dist-label");
+      if (dist) dist.textContent = geo.km + " km · ~" + geo.bike + " min bike";
+    });
+
+    // Keep the Cinemas dropdown's distance ordering honest too. Its ranks are
+    // deliberately offset so the default-off cinemas stay in their own block
+    // at the bottom, which is where they were put on purpose.
+    var panelBody = document.querySelector("#cinema-panel .filter-panel-body");
+    if (panelBody) {
+      var labels = Array.prototype.slice.call(panelBody.querySelectorAll("label"));
+      labels.forEach(function (l) {
+        var g = geoByKey[l.dataset.name];
+        var box = l.querySelector("input");
+        var offset = (box && !box.defaultChecked) ? 1000 : 0;
+        l.dataset.distanceOrder = offset + (g && g.rank != null ? g.rank : 999);
+      });
+      var activeSort = document.querySelector("#cinema-panel .sort-btn.active");
+      if (activeSort && activeSort.dataset.sort === "distance") {
+        labels.slice().sort(function (a, b) {
+          return parseInt(a.dataset.distanceOrder, 10) - parseInt(b.dataset.distanceOrder, 10);
+        }).forEach(function (l) { panelBody.appendChild(l); });
+      }
+    }
+
+    if (homeBlurb) {
+      homeBlurb.textContent = (label === CONFIG_HOME.label)
+        ? "Within {{ radius_km }} km of {{ (home_station or 'home') }}"
+        : "Measured from " + label;
+    }
+
+    if (homeMarker) {
+      homeMarker.setLatLng([lat, lon]);
+      homeMarker.setTooltipContent(label);
+    }
+    applyFilters();  // redraws the map via updateMap()
+  }
+
+  if (stationSelect) {
+    var storedStation = null;
+    try { storedStation = localStorage.getItem(HOME_STORAGE_KEY); } catch (e) { /* private mode */ }
+    var hasStored = storedStation !== null &&
+      Array.prototype.some.call(stationSelect.options, function (o) { return o.value === storedStation; });
+    if (hasStored) stationSelect.value = storedStation;
+
+    stationSelect.addEventListener("change", function () {
+      try { localStorage.setItem(HOME_STORAGE_KEY, stationSelect.value); } catch (e) { /* ignore */ }
+      var opt = stationSelect.selectedOptions[0];
+      if (!stationSelect.value) {
+        setHome(CONFIG_HOME.lat, CONFIG_HOME.lon, CONFIG_HOME.label);
+      } else {
+        setHome(parseFloat(opt.dataset.lat), parseFloat(opt.dataset.lon), stationSelect.value);
+      }
+      if (map) map.invalidateSize();
+    });
+
+    // A remembered station has to be applied on load, not just selected.
+    if (hasStored && storedStation) {
+      var initialOpt = stationSelect.selectedOptions[0];
+      setHome(parseFloat(initialOpt.dataset.lat), parseFloat(initialOpt.dataset.lon), storedStation);
+    }
   }
 
   // --- Close filter dropdowns on outside click / Escape --------------------

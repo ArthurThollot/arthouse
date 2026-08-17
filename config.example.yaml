@@ -2,10 +2,22 @@
 # config.yaml is gitignored (it ends up holding your home coordinates and
 # your OMDb API key) -- this example file is the one that's checked in.
 
-# Home location the radius is measured from.
-# Default: Sloterdijk station, Amsterdam. Update to your exact address's
-# coordinates for more precision (e.g. via https://www.openstreetmap.org,
-# right-click a spot -> "Show address").
+# Home location the radius is measured from. Two ways to set it:
+#
+#   1. A metro/rail stop near you -- easiest, no coordinate hunting:
+#        home:
+#          station: De Pijp
+#      See stations.py for the full list (or the "Measure from" dropdown on
+#      the generated page, which offers the same set).
+#
+#   2. Exact coordinates -- more precise, and always wins over `station`:
+#        home:
+#          lat: 52.3886
+#          lon: 4.8369
+#      Get them from https://www.openstreetmap.org: right-click a spot ->
+#      "Show address".
+#
+# Default below: Sloterdijk station, Amsterdam.
 home:
   lat: 52.3886
   lon: 4.8369
