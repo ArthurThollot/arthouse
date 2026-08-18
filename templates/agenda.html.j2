@@ -266,6 +266,11 @@
     padding: 0.15rem 0;
     white-space: nowrap;
   }
+  /* ~25 genres single-file is a long scroll in a 340px panel, and they're all
+     short words -- two columns fits nearly the whole list without scrolling. */
+  .genre-list { column-count: 2; column-gap: 1.4rem; }
+  .genre-list label { break-inside: avoid; }
+  .genre-list .cinema-divider { break-inside: avoid; }
 
   /* Badges (Last chance) */
   .badge {
@@ -671,6 +676,26 @@
         {% endfor %}
       </div>
     </details>
+
+    {% if genres %}
+    <details class="filter-panel" id="genre-panel">
+      <summary>&#127917; Genre <span class="panel-count" data-count-for="genre-toggle"></span></summary>
+      <div class="filter-panel-body genre-body">
+        <div class="filter-panel-actions">
+          <button type="button" data-action="all">All</button><button type="button" data-action="none">None</button>
+        </div>
+        <div class="genre-list">
+          {% for genre in genres %}
+          <label><input type="checkbox" class="genre-toggle" value="{{ genre|lower }}" checked> {{ genre }}</label>
+          {% endfor %}
+          {% if has_ungenred %}
+          <hr class="cinema-divider">
+          <label title="Films OMDb had no match for, so we don't know the genre"><input type="checkbox" class="genre-toggle" value="__unlisted__" checked> Unlisted</label>
+          {% endif %}
+        </div>
+      </div>
+    </details>
+    {% endif %}
     </div>
   </div>
 </div>
@@ -696,7 +721,7 @@
           <div class="day-group" data-date="{{ day.date }}">
             <div class="day-label">{{ day.label }}</div>
             {% for s in day.showtimes %}
-            <div class="showtime" data-film="{{ s.film_title|lower }}" data-rating="{{ s.imdb_rating if s.imdb_rating else '' }}" data-minutes="{{ s.minutes_of_day }}">
+            <div class="showtime" data-film="{{ s.film_title|lower }}" data-rating="{{ s.imdb_rating if s.imdb_rating else '' }}" data-minutes="{{ s.minutes_of_day }}" data-genres="{{ s.genre_slugs|join('|') }}">
               <span class="time">
                 {% if s.booking_url %}<a class="book" href="{{ s.booking_url }}">{{ s.time_label }}</a>{% else %}{{ s.time_label }}{% endif %}
               </span>
@@ -710,8 +735,8 @@
                     {% if s.poster_url %}<img src="{{ s.poster_url }}" alt="" loading="lazy">{% endif %}
                     <div class="film-meta">
                       <p class="film-desc">{{ s.description or "No description available." }}</p>
-                      {% if s.genre or s.runtime_minutes %}
-                      <p class="film-credit">{{ s.genre }}{{ " · " if s.genre and s.runtime_minutes }}{{ (s.runtime_minutes ~ " min") if s.runtime_minutes }}</p>
+                      {% if s.genre_display or s.runtime_minutes %}
+                      <p class="film-credit">{{ s.genre_display }}{{ " · " if s.genre_display and s.runtime_minutes }}{{ (s.runtime_minutes ~ " min") if s.runtime_minutes }}</p>
                       {% endif %}
                       {% if s.director %}<p class="film-credit"><strong>Director:</strong> {{ s.director }}</p>{% endif %}
                       {% if s.cast %}<p class="film-credit"><strong>Cast:</strong> {{ s.cast }}</p>{% endif %}
@@ -752,7 +777,7 @@
       <div class="movie-info">
         <h3>{{ f.film_title }}</h3>
         <div class="movie-sub">
-          {{ f.language_tag }}{{ " · " ~ f.genre if f.genre }}{{ (" · " ~ f.runtime_minutes ~ " min") if f.runtime_minutes }}{% if f.is_new %}<span class="new-flag" title="First showing within the last 14 days">&#127381; New</span>{% endif %}
+          {{ f.language_tag }}{{ " · " ~ f.genre_display if f.genre_display }}{{ (" · " ~ f.runtime_minutes ~ " min") if f.runtime_minutes }}{% if f.is_new %}<span class="new-flag" title="First showing within the last 14 days">&#127381; New</span>{% endif %}
         </div>
         {% if f.imdb_rating %}
         <span class="rating" title="IMDb {{ f.imdb_rating }}/10">
@@ -794,7 +819,25 @@
     targetMinutes: 0,
     cinemas: new Set(Array.prototype.slice.call(document.querySelectorAll(".cinema-toggle")).filter(function (c) { return c.checked; }).map(function (c) { return c.value; })),
     buckets: new Set(Array.prototype.slice.call(document.querySelectorAll(".bucket-toggle")).filter(function (c) { return c.checked; }).map(function (c) { return c.value; })),
+    genres: new Set(Array.prototype.slice.call(document.querySelectorAll(".genre-toggle")).filter(function (c) { return c.checked; }).map(function (c) { return c.value; })),
   };
+
+  // A film is usually several genres, so this is an any-of test: ticking
+  // "Thriller" keeps a Drama/Thriller. Films with no genre at all (no OMDb
+  // match) ride on the separate "Unlisted" box rather than silently always
+  // showing -- otherwise ticking one genre would still leave them in.
+  var UNLISTED = "__unlisted__";
+  function genreOk(row) {
+    if (!row._genres) {
+      var raw = row.dataset.genres || "";
+      row._genres = raw ? raw.split("|") : [];
+    }
+    if (!row._genres.length) return state.genres.has(UNLISTED);
+    for (var i = 0; i < row._genres.length; i++) {
+      if (state.genres.has(row._genres[i])) return true;
+    }
+    return false;
+  }
 
   function applyFilters() {
     var visibleCards = 0;
@@ -819,7 +862,7 @@
           var textOk = state.query === "" || cinemaNameMatches || row.dataset.film.indexOf(state.query) !== -1;
           var ratingOk = state.minRating === 0 || (row.dataset.rating !== "" && parseFloat(row.dataset.rating) >= state.minRating);
           var timeOk = state.targetMinutes === 0 || Math.abs(parseInt(row.dataset.minutes, 10) - state.targetMinutes) <= 60;
-          var show = dayOk && textOk && ratingOk && timeOk;
+          var show = dayOk && textOk && ratingOk && timeOk && genreOk(row);
           row.style.display = show ? "" : "none";
           if (show) {
             groupHasVisible = true;
@@ -990,6 +1033,9 @@
 
   wireCheckboxGroup("cinema-panel", "cinema-toggle", state.cinemas);
   wireCheckboxGroup("bucket-panel", "bucket-toggle", state.buckets);
+  if (document.getElementById("genre-panel")) {
+    wireCheckboxGroup("genre-panel", "genre-toggle", state.genres);
+  }
   wireSortToggle("cinema-panel");
 
   var viewTabs = Array.prototype.slice.call(document.querySelectorAll(".view-tab"));
@@ -1008,7 +1054,7 @@
   });
 
   // --- Reset filters -------------------------------------------------------
-  var allBoxes = Array.prototype.slice.call(document.querySelectorAll(".cinema-toggle, .bucket-toggle"));
+  var allBoxes = Array.prototype.slice.call(document.querySelectorAll(".cinema-toggle, .bucket-toggle, .genre-toggle"));
   var initialDay = state.day;
   var resetBtn = document.getElementById("reset-btn");
 
@@ -1036,7 +1082,9 @@
       state.day = initialDay;
       allBoxes.forEach(function (b) {
         b.checked = b.defaultChecked;
-        var set = b.classList.contains("cinema-toggle") ? state.cinemas : state.buckets;
+        var set = b.classList.contains("cinema-toggle") ? state.cinemas
+                : b.classList.contains("genre-toggle") ? state.genres
+                : state.buckets;
         if (b.checked) set.add(b.value); else set.delete(b.value);
       });
       applyFilters();

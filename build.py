@@ -37,6 +37,55 @@ def _is_new_release(release_date: str | None, today) -> bool:
     return 0 <= (today - released).days <= NEW_RELEASE_WINDOW_DAYS
 
 
+# Films OMDb didn't match keep their source's own genre, and the sources are
+# Dutch sites -- so without this the filter grows both "Comedy" and "Komedie"
+# and ticking one misses half the comedies. Maps to OMDb's English vocabulary,
+# since that's what the matched majority already uses.
+GENRE_ALIASES = {
+    "actie": "Action",
+    "animatie": "Animation",
+    "avontuur": "Adventure",
+    "biografie": "Biography",
+    "documentaire": "Documentary",
+    "familie": "Family",
+    "fantasie": "Fantasy",
+    "geschiedenis": "History",
+    "komedie": "Comedy",
+    "misdaad": "Crime",
+    "muziek": "Music",
+    "muzikaal": "Musical",
+    "mysterie": "Mystery",
+    "oorlog": "War",
+    "romantiek": "Romance",
+    "science fiction": "Sci-Fi",
+    "sciencefiction": "Sci-Fi",
+}
+# OMDb says "N/A" rather than omitting the field; that's an absence, not a genre.
+GENRE_NOISE = {"n/a", "-", "onbekend"}
+
+
+def split_genres(value: str | None) -> list[str]:
+    """OMDb hands back genre as one string: "Drama, Romance, Thriller".
+
+    One film is usually several genres, so the filter has to be many-to-many --
+    ticking "Thriller" should keep a Drama/Thriller. Dutch names are folded
+    into their English equivalent and placeholders are dropped, so a film with
+    only "N/A" comes back genre-less rather than filed under a junk genre.
+    """
+    if not value:
+        return []
+    seen, out = set(), []
+    for part in value.split(","):
+        genre = part.strip()
+        if not genre or genre.lower() in GENRE_NOISE:
+            continue
+        genre = GENRE_ALIASES.get(genre.lower(), genre)
+        if genre.lower() not in seen:
+            seen.add(genre.lower())
+            out.append(genre)
+    return out
+
+
 def _truncate(text: str | None, max_chars: int) -> str | None:
     if not text:
         return None
@@ -161,6 +210,16 @@ def render(records: list[dict], config: dict, generated_at: datetime) -> str:
     speed_kmh = config.get("biking_speed_kmh", 15)
     today = generated_at.date()
 
+    # Genres arrive as one comma-joined string per film; the page needs them as
+    # a list to filter on. Done here rather than in finalize() because
+    # attach_ratings() overwrites 'genre' with OMDb's version after that runs.
+    # Display uses the same cleaned list so the label under a film always
+    # matches the checkbox that keeps it on screen.
+    for r in records:
+        found = split_genres(r.get("genre"))
+        r["genre_slugs"] = [g.lower() for g in found]
+        r["genre_display"] = ", ".join(found)
+
     by_cinema = defaultdict(list)
     for r in records:
         by_cinema[r["cinema_name"]].append(r)
@@ -213,6 +272,20 @@ def render(records: list[dict], config: dict, generated_at: datetime) -> str:
         {"name": c["name"], "default_off": True} for c in cinemas if c["name"].lower() in default_off
     ]
 
+    # Only offer genres that actually occur, and only offer "Unlisted" if some
+    # film really has no genre -- an always-present checkbox that filters
+    # nothing is just clutter. A film ends up genre-less when OMDb had no match
+    # and its source didn't supply one either. Unlike the bike buckets below,
+    # this doesn't depend on the home station, so it needs no widening.
+    genre_labels: dict[str, str] = {}
+    has_ungenred = False
+    for r in records:
+        if not r["genre_slugs"]:
+            has_ungenred = True
+        for slug, label in zip(r["genre_slugs"], r["genre_display"].split(", ")):
+            genre_labels.setdefault(slug, label)
+    genres_present = [genre_labels[k] for k in sorted(genre_labels)]
+
     # Offer every bucket any *offerable* home station could put a cinema in,
     # not just the ones the configured home lands on. The page lets you switch
     # station client-side; a cinema that moved into a bucket with no checkbox
@@ -254,6 +327,8 @@ def render(records: list[dict], config: dict, generated_at: datetime) -> str:
         distinct_films=distinct_films,
         cinema_checkbox_order=cinema_checkbox_order,
         buckets=buckets_present,
+        genres=genres_present,
+        has_ungenred=has_ungenred,
         day_pills=day_pills,
         today_iso=today.isoformat(),
         radius_km=config["radius_km"],
