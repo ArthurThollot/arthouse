@@ -1188,13 +1188,21 @@
         refreshBtn.textContent = "Refreshing…";
         fetch("/refresh", { method: "POST" })
           .then(function (r) {
-            if (!r.ok) throw new Error("refresh failed");
+            // A 500 means the server answered and the build itself broke, so
+            // report what it said rather than blaming the server for being
+            // down -- those are very different problems to go fix.
+            if (!r.ok) return r.text().then(function (msg) {
+              throw new Error("The build failed on the server:\n\n" + (msg || r.status) +
+                              "\n\nThe terminal running ./run.sh has the full trace.");
+            });
             location.reload();
           })
-          .catch(function () {
+          .catch(function (err) {
             refreshBtn.disabled = false;
             refreshBtn.innerHTML = "&#8635; Refresh";
-            alert("Refresh failed -- is ./run.sh still running in a terminal?");
+            alert(err instanceof TypeError
+              ? "Couldn't reach the server -- is ./run.sh still running in a terminal?"
+              : err.message);
           });
       });
     }
