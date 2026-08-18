@@ -1,3 +1,22 @@
+{#- The rating chip appears in both tabs. When OMDb gave us the film's IMDb
+    id it becomes a link to that title's page; without one it stays a plain
+    span rather than guessing a URL from the title. -#}
+{% macro rating_chip(f) -%}
+{%- if f.imdb_rating -%}
+{%- set pct = (f.imdb_rating * 10)|round(0, 'floor')|int -%}
+{%- if f.imdb_id -%}
+<a class="rating rating-link" href="https://www.imdb.com/title/{{ f.imdb_id }}/" target="_blank" rel="noopener noreferrer" title="{{ f.film_title }} on IMDb -- {{ f.imdb_rating }}/10">
+  <span class="rating-track"><span class="rating-fill" style="width: {{ pct }}%"></span></span>
+  <span class="rating-value">{{ f.imdb_rating }}</span>
+</a>
+{%- else -%}
+<span class="rating" title="IMDb {{ f.imdb_rating }}/10">
+  <span class="rating-track"><span class="rating-fill" style="width: {{ pct }}%"></span></span>
+  <span class="rating-value">{{ f.imdb_rating }}</span>
+</span>
+{%- endif -%}
+{%- endif -%}
+{%- endmacro %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -428,6 +447,12 @@
   .film-credit strong { color: inherit; font-weight: 600; }
 
   .rating { display: flex; align-items: center; gap: 0.35rem; margin-top: 0.15rem; }
+  /* The chip is a link when we know the film's IMDb id. Keep it looking like
+     the plain chip until hover, so a rated film doesn't shout for a click. */
+  a.rating-link { text-decoration: none; width: fit-content; }
+  a.rating-link:hover .rating-value,
+  a.rating-link:focus-visible .rating-value { color: var(--accent); text-decoration: underline; }
+  a.rating-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
   .rating-track {
     width: 46px;
     height: 5px;
@@ -498,9 +523,13 @@
   }
   .movie-card .movie-info { padding: 0.8rem 0.9rem 1rem; }
   .movie-card h3 { margin: 0 0 0.25rem; font-size: 1.02rem; font-family: inherit; }
+  /* Lighter than the title: the year disambiguates re-releases and remakes,
+     it isn't part of the name. */
+  .movie-card .movie-year { color: var(--muted); font-weight: 400; }
   .movie-card .movie-sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.5rem; }
   /* Clamped so the browse grid stays on a tidy baseline instead of every row
-     being as tall as its longest synopsis. */
+     being as tall as its longest synopsis. .expanded lifts the clamp; the
+     toggle button below is only revealed for cards that are really cut off. */
   .movie-card .film-desc {
     margin-top: 0.5rem;
     display: -webkit-box;
@@ -509,6 +538,25 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  .movie-card .film-desc.expanded {
+    display: block;
+    -webkit-line-clamp: none;
+    line-clamp: none;
+    overflow: visible;
+  }
+  .desc-toggle {
+    margin: 0.1rem 0 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .desc-toggle:hover { text-decoration: underline; }
+  .desc-toggle[hidden] { display: none; }
   /* Filled in by applyFilters() -- which cinemas this film is actually on at,
      under the filters currently applied. */
   .movie-where {
@@ -761,12 +809,7 @@
                     </div>
                   </div>
                 </details>
-                {% if s.imdb_rating %}
-                <span class="rating" title="IMDb {{ s.imdb_rating }}/10">
-                  <span class="rating-track"><span class="rating-fill" style="width: {{ (s.imdb_rating * 10)|round(0, 'floor')|int }}%"></span></span>
-                  <span class="rating-value">{{ s.imdb_rating }}</span>
-                </span>
-                {% endif %}
+                {{ rating_chip(s) }}
               </div>
             </div>
             {% endfor %}
@@ -794,17 +837,15 @@
         {% endif %}
       </div>
       <div class="movie-info">
-        <h3>{{ f.film_title }}</h3>
+        <h3>{{ f.film_title }}{% if f.film_year %} <span class="movie-year">{{ f.film_year }}</span>{% endif %}</h3>
         <div class="movie-sub">
           {{ f.language_tag }}{{ " · " ~ f.genre_display if f.genre_display }}{{ (" · " ~ f.runtime_minutes ~ " min") if f.runtime_minutes }}{% if f.is_new %}<span class="new-flag" title="First showing within the last 14 days">&#127381; New</span>{% endif %}
         </div>
-        {% if f.imdb_rating %}
-        <span class="rating" title="IMDb {{ f.imdb_rating }}/10">
-          <span class="rating-track"><span class="rating-fill" style="width: {{ (f.imdb_rating * 10)|round(0, 'floor')|int }}%"></span></span>
-          <span class="rating-value">{{ f.imdb_rating }}</span>
-        </span>
-        {% endif %}
+        {{ rating_chip(f) }}
         <p class="film-desc">{{ f.description_full or "No description available." }}</p>
+        {#- Unhidden by JS only for the cards whose text actually overflows the
+            clamp; a button that does nothing is worse than no button. -#}
+        <button type="button" class="desc-toggle" hidden aria-expanded="false">Read more</button>
         {% if f.director %}<p class="film-credit"><strong>Director:</strong> {{ f.director }}</p>{% endif %}
         {% if f.cast %}<p class="film-credit"><strong>Cast:</strong> {{ f.cast }}</p>{% endif %}
         <div class="movie-where"></div>
@@ -821,6 +862,8 @@
   var dayPills = Array.prototype.slice.call(document.querySelectorAll("#day-pills .pill"));
   var cards = Array.prototype.slice.call(document.querySelectorAll(".card"));
   var movieCards = Array.prototype.slice.call(document.querySelectorAll(".movie-card"));
+  var movieGrid = document.getElementById("movie-grid");
+  var resizeTimer;
   var noResults = document.getElementById("no-results");
   var noMovieResults = document.getElementById("no-movie-results");
   var totalCountEl = document.getElementById("total-count");
@@ -1006,10 +1049,56 @@
       if (where) where.innerHTML = describePlacement(info);
     });
     if (noMovieResults) noMovieResults.style.display = movieCards.length && visibleMovieCount === 0 ? "" : "none";
+    syncDescToggles();
     updatePanelCounts();
     updateResetVisibility();
     updateMap();
     persist();
+  }
+
+  // A "Read more" button is only worth showing on the cards whose synopsis is
+  // actually cut off by the four-line clamp -- which has to be measured.
+  //
+  // Two traps. A hidden element measures 0 for every height (true while the
+  // movie tab is closed, and for any card the filters hide), so those are
+  // skipped and picked up next time they're on screen -- applyFilters, the
+  // tab switch, a resize. And line-clamp drops the overflowing lines without
+  // making the element scrollable, so scrollHeight == clientHeight even when
+  // text was cut: the only reliable read is to unclamp, measure, re-clamp,
+  // all within one frame so nothing flickers.
+  //
+  // The text never changes, so a card's answer only goes stale when its
+  // column gets wider or narrower -- hence caching the measurement against
+  // the width it was taken at, rather than redoing 100+ forced reflows on
+  // every keystroke in the search box.
+  function syncDescToggles() {
+    movieCards.forEach(function (mc) {
+      if (mc.offsetParent === null) return;
+      var desc = mc.querySelector(".film-desc");
+      var btn = mc.querySelector(".desc-toggle");
+      if (!desc || !btn) return;
+      var width = String(desc.clientWidth);
+      if (desc.dataset.measuredAt === width) return;
+      desc.dataset.measuredAt = width;
+      if (desc.classList.contains("expanded")) return;
+      var clamped = desc.clientHeight;
+      desc.classList.add("expanded");
+      var full = desc.scrollHeight;
+      desc.classList.remove("expanded");
+      btn.hidden = full <= clamped + 1;
+    });
+  }
+
+  if (movieGrid) {
+    movieGrid.addEventListener("click", function (e) {
+      var btn = e.target.closest(".desc-toggle");
+      if (!btn) return;
+      var desc = btn.parentNode.querySelector(".film-desc");
+      if (!desc) return;
+      var open = desc.classList.toggle("expanded");
+      btn.textContent = open ? "Read less" : "Read more";
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+    });
   }
 
   function escapeHtml(s) {
@@ -1174,7 +1263,15 @@
       // default is display:none -- so showing it needs an explicit value.
       cinemaView.style.display = isMovie ? "none" : "block";
       movieView.style.display = isMovie ? "block" : "none";
+      if (isMovie) syncDescToggles();
     });
+  });
+
+  window.addEventListener("resize", function () {
+    // The clamp cuts at a different word depending on column width, so a
+    // synopsis that fitted in four lines may not after a resize.
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(syncDescToggles, 150);
   });
 
   // --- Reset filters -------------------------------------------------------

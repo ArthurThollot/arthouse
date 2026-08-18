@@ -23,7 +23,11 @@ ROOT = Path(__file__).parent
 SOURCE_MODULES = {"pathe": pathe, "cineville": cineville, "vue": vue}
 MAX_DAYS_AHEAD = 7  # hard cap: never show more than a week out, regardless of config
 DESCRIPTION_MAX_CHARS = 220
-DESCRIPTION_FULL_MAX_CHARS = 600  # for the movie-gallery tab; a defensive cap, not a real limit
+# For the movie-gallery tab, where the text is clamped to a few lines and
+# expandable -- so this only needs to be high enough that "read more" reveals
+# a whole synopsis rather than another ellipsis. A defensive cap against a
+# pathological source, not a real limit: OMDb's full plots run ~1000 chars.
+DESCRIPTION_FULL_MAX_CHARS = 2000
 NEW_RELEASE_WINDOW_DAYS = 14
 
 
@@ -168,6 +172,7 @@ def finalize(records: list[dict], home: dict, now: datetime) -> list[dict]:
                 "language_tag": r["language_tag"],
                 "booking_url": r.get("booking_url"),
                 "imdb_rating": None,  # filled in by attach_ratings()
+                "imdb_id": None,  # ditto -- the tt… id, for linking to IMDb
             }
         )
     finalized.sort(key=lambda r: (r["start_dt"], r["distance_km"], r["film_title"]))
@@ -175,7 +180,7 @@ def finalize(records: list[dict], home: dict, now: datetime) -> list[dict]:
 
 
 def attach_ratings(records: list[dict], config: dict) -> None:
-    """Mutates records in place: fills in 'imdb_rating', and where OMDb has
+    """Mutates records in place: fills in 'imdb_rating'/'imdb_id', and where OMDb has
     a match, overrides description/cast/director/genre with OMDb's English
     versions (each source's own text is Dutch -- Pathé, Cineville and Vue
     are all Dutch sites; Cineville and Vue don't expose genre at all).
@@ -194,6 +199,7 @@ def attach_ratings(records: list[dict], config: dict) -> None:
         # .get() rather than [...]: cached entries from an older run may
         # predate a field added here since, and shouldn't crash the build.
         r["imdb_rating"] = data.get("rating")
+        r["imdb_id"] = data.get("imdb_id")
         if data.get("plot"):
             r["description"] = _truncate(data["plot"], DESCRIPTION_MAX_CHARS)
             r["description_full"] = _truncate(data["plot"], DESCRIPTION_FULL_MAX_CHARS)

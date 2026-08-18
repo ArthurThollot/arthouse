@@ -62,11 +62,18 @@ def _save_cache(cache: dict) -> None:
 def _cached(cache: dict, key: str):
     """A cache hit is either None (confirmed no match) or a dict (the new
     schema). A bare float means it's a value from before this file tracked
-    plot/cast/director -- treat as a miss so it gets refetched once."""
+    plot/cast/director -- treat as a miss so it gets refetched once.
+
+    A dict without an "imdb_id" key predates the IMDb-link/full-plot change,
+    so it's also a miss: refetching once picks up the id and the longer
+    Plot. Confirmed misses (None) stay cached -- there's nothing new to
+    learn about a film OMDb doesn't have."""
     if key not in cache:
         return False, None
     value = cache[key]
-    if value is None or isinstance(value, dict):
+    if value is None:
+        return True, None
+    if isinstance(value, dict) and "imdb_id" in value:
         return True, value
     return False, None
 
@@ -94,9 +101,13 @@ def _cap_csv(value: str | None, limit: int) -> str | None:
 
 def _lookup(session: requests.Session, title: str, year: str | None, api_key: str):
     """Returns (data_or_None, cacheable: bool, fatal_error: str | None).
-    data, when present, is {"rating": float|None, "plot": str|None,
-    "cast": str|None, "director": str|None, "genre": str|None}."""
-    params = {"apikey": api_key, "t": title, "type": "movie"}
+    data, when present, is {"rating": float|None, "imdb_id": str|None,
+    "plot": str|None, "cast": str|None, "director": str|None,
+    "genre": str|None}."""
+    # plot=full: OMDb's default "short" plot is a single sentence, which is
+    # all the by-cinema rows need but leaves the expandable synopsis in the
+    # movie gallery with nothing to expand into.
+    params = {"apikey": api_key, "t": title, "type": "movie", "plot": "full"}
     if year:
         params["y"] = year
     try:
@@ -125,6 +136,7 @@ def _lookup(session: requests.Session, title: str, year: str | None, api_key: st
 
     result = {
         "rating": rating,
+        "imdb_id": _clean_field(data.get("imdbID")),
         "plot": _clean_field(data.get("Plot")),
         "cast": _clean_field(data.get("Actors")),
         "director": _clean_field(data.get("Director")),
@@ -136,9 +148,9 @@ def _lookup(session: requests.Session, title: str, year: str | None, api_key: st
 def get_ratings(title_years: set[tuple[str, str | None]], api_key: str) -> dict[tuple[str, str | None], dict]:
     """title_years: set of (film_title, film_year_or_None) as they appear in
     our records. Returns a dict from that same key to
-    {"rating": float|None, "plot": str|None, "cast": str|None,
-    "director": str|None, "genre": str|None}, omitting entries with no
-    OMDb match at all."""
+    {"rating": float|None, "imdb_id": str|None, "plot": str|None,
+    "cast": str|None, "director": str|None, "genre": str|None}, omitting
+    entries with no OMDb match at all."""
     if not api_key:
         return {}
 
