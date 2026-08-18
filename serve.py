@@ -11,12 +11,37 @@ Usage: python serve.py [--config config.yaml] [--port 8765]
 
 import argparse
 import http.server
+import importlib
+import sys
+import traceback
 import webbrowser
 from pathlib import Path
 
-from build import run_build
+import build
 
 ROOT = Path(__file__).parent
+
+
+def reload_project_code() -> None:
+    """Re-import our own modules so a long-running server tracks the files.
+
+    Python caches modules at first import, so a server left up for days keeps
+    running the build.py it started with. Edit build.py -- or switch branches
+    -- and Refresh then renders the new template through the old code, which
+    fails in confusing ways (a missing render variable, not an obvious "your
+    server is stale"). Third-party packages are left alone; only files under
+    this repo are reloaded, build last since it imports the others.
+    """
+    own = []
+    for name, module in list(sys.modules.items()):
+        path = getattr(module, "__file__", None)
+        if name == "__main__" or not path:
+            continue
+        if Path(path).is_relative_to(ROOT):
+            own.append(module)
+    own.sort(key=lambda m: m.__name__ == "build")
+    for module in own:
+        importlib.reload(module)
 
 
 def make_handler(config_path: Path):
@@ -29,11 +54,16 @@ def make_handler(config_path: Path):
                 self.send_error(404)
                 return
             try:
-                run_build(config_path)
+                reload_project_code()
+                build.run_build(config_path)
                 body = b"ok"
                 status = 200
             except Exception as e:
-                body = str(e).encode()
+                # Print the full trace to the terminal but hand the page a
+                # one-liner -- it goes into an alert(), where a traceback is
+                # unreadable.
+                traceback.print_exc()
+                body = f"{type(e).__name__}: {e}".encode()
                 status = 500
             self.send_response(status)
             self.send_header("Content-Type", "text/plain")
@@ -55,7 +85,7 @@ def main():
     args = parser.parse_args()
 
     config_path = Path(args.config)
-    run_build(config_path)
+    build.run_build(config_path)
 
     handler = make_handler(config_path)
     url = f"http://localhost:{args.port}/"
