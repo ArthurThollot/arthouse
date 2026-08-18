@@ -41,7 +41,13 @@ def reload_project_code() -> None:
             own.append(module)
     own.sort(key=lambda m: m.__name__ == "build")
     for module in own:
-        importlib.reload(module)
+        try:
+            importlib.reload(module)
+        except ModuleNotFoundError:
+            # Its file is gone -- switching to a branch that doesn't have it.
+            # Forget it rather than failing the refresh; if the current build
+            # still needs it, the import below raises a clear error instead.
+            sys.modules.pop(module.__name__, None)
 
 
 def make_handler(config_path: Path):
