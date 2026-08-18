@@ -365,6 +365,24 @@
     border-bottom: 1px solid var(--border);
   }
   .showtime:last-child { border-bottom: none; }
+  /* Caps how tall one cinema card can get. Without it a busy cinema makes its
+     column several screens long while a quiet one is a stub, and you scroll
+     past a wall of Pathé to reach anything else. */
+  .show-more {
+    display: block;
+    width: 100%;
+    margin-top: 0.5rem;
+    padding: 0.4rem;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: none;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .show-more:hover { background: var(--hover, rgba(127, 127, 127, 0.08)); }
   .showtime .time { font-weight: 600; white-space: nowrap; width: 3rem; flex-shrink: 0; padding-top: 0.05rem; }
   .showtime .film-col { flex: 1; min-width: 0; }
   .showtime .film { display: block; }
@@ -754,6 +772,7 @@
             {% endfor %}
           </div>
           {% endfor %}
+          <button type="button" class="show-more" hidden></button>
         </div>
       </details>
     </div>
@@ -812,15 +831,89 @@
   var timeValueEl = document.getElementById("time-slider-value");
   var timeEmojiEl = document.getElementById("time-emoji");
 
+  // --- Remembered filters --------------------------------------------------
+  // Refresh rebuilds the page from scratch, so without this every reload throws
+  // away your cinemas, genres and sliders. Sits alongside the home-station key
+  // below. Every access is guarded: localStorage throws in private mode, and a
+  // corrupt value should cost you your filters, not the whole page.
+  var FILTER_STORAGE_KEY = "arthouse.filters";
+
+  function loadSaved() {
+    try {
+      var raw = localStorage.getItem(FILTER_STORAGE_KEY);
+      var parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  var saved = loadSaved();
+
+  // Only restore a checkbox group if the saved values still line up with what
+  // this build renders. Cinemas come and go between builds; restoring a stale
+  // list would silently un-tick a cinema that simply didn't exist yesterday.
+  function restoreBoxes(cls, savedList) {
+    var boxes = Array.prototype.slice.call(document.querySelectorAll("." + cls));
+    if (Array.isArray(savedList) && boxes.length) {
+      var want = new Set(savedList);
+      boxes.forEach(function (b) { b.checked = want.has(b.value); });
+    }
+    return new Set(boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; }));
+  }
+
+  var defaultDayEl = document.querySelector("#day-pills .pill.active");
+  var DEFAULT_DAY = defaultDayEl ? defaultDayEl.dataset.date : null;
+  // A saved day is a date, and dates go stale: yesterday's pick isn't rendered
+  // today. Fall back to the build's default (today) rather than filtering the
+  // page down to nothing against a date no pill carries.
+  var savedDay = typeof saved.day === "string" &&
+    document.querySelector('#day-pills .pill[data-date="' + saved.day + '"]') ? saved.day : DEFAULT_DAY;
+
+  function savedNumber(value, max) {
+    var n = typeof value === "number" ? value : parseFloat(value);
+    return isFinite(n) && n >= 0 && n <= max ? n : 0;
+  }
+
   var state = {
-    query: "",
-    day: document.querySelector("#day-pills .pill.active") ? document.querySelector("#day-pills .pill.active").dataset.date : null,
-    minRating: 0,
-    targetMinutes: 0,
-    cinemas: new Set(Array.prototype.slice.call(document.querySelectorAll(".cinema-toggle")).filter(function (c) { return c.checked; }).map(function (c) { return c.value; })),
-    buckets: new Set(Array.prototype.slice.call(document.querySelectorAll(".bucket-toggle")).filter(function (c) { return c.checked; }).map(function (c) { return c.value; })),
-    genres: new Set(Array.prototype.slice.call(document.querySelectorAll(".genre-toggle")).filter(function (c) { return c.checked; }).map(function (c) { return c.value; })),
+    query: typeof saved.query === "string" ? saved.query : "",
+    day: savedDay,
+    minRating: savedNumber(saved.minRating, 10),
+    targetMinutes: savedNumber(saved.targetMinutes, 1439),
+    cinemas: restoreBoxes("cinema-toggle", saved.cinemas),
+    buckets: restoreBoxes("bucket-toggle", saved.buckets),
+    genres: restoreBoxes("genre-toggle", saved.genres),
   };
+
+  // Push the restored state back into the controls. The slider UI helpers are
+  // defined further down and run on load, so they pick these values up.
+  searchInput.value = state.query;
+  ratingSlider.value = state.minRating;
+  timeSlider.value = state.targetMinutes;
+  dayPills.forEach(function (p) {
+    p.classList.toggle("active", p.dataset.date === state.day);
+  });
+
+  function persist() {
+    try {
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({
+        query: state.query,
+        day: state.day,
+        minRating: state.minRating,
+        targetMinutes: state.targetMinutes,
+        cinemas: Array.from(state.cinemas),
+        buckets: Array.from(state.buckets),
+        genres: Array.from(state.genres),
+      }));
+    } catch (e) { /* private mode or quota -- filters just won't stick */ }
+  }
+
+  // --- Long cards ----------------------------------------------------------
+  // How many showtimes a cinema shows before the rest fold behind "+N more".
+  // Keeps the columns roughly comparable in height so the grid stays scannable.
+  // Expansion is per cinema and deliberately not remembered: it's a "look
+  // closer at this one" gesture, not a filter.
+  var SHOWTIME_CAP = 8;
+  var expandedCards = new Set();
 
   // A film is usually several genres, so this is an any-of test: ticking
   // "Thriller" keeps a Drama/Thriller. Films with no genre at all (no OMDb
@@ -854,6 +947,7 @@
       var cinemaNameMatches = card.dataset.cinema.indexOf(state.query) !== -1;
       var cardHasVisible = false;
       var cardVisibleCount = 0;
+      var expanded = expandedCards.has(card.dataset.cinema);
 
       card.querySelectorAll(".day-group").forEach(function (group) {
         var dayOk = cinemaOk && bucketOk && group.dataset.date === state.day;
@@ -863,10 +957,15 @@
           var ratingOk = state.minRating === 0 || (row.dataset.rating !== "" && parseFloat(row.dataset.rating) >= state.minRating);
           var timeOk = state.targetMinutes === 0 || Math.abs(parseInt(row.dataset.minutes, 10) - state.targetMinutes) <= 60;
           var show = dayOk && textOk && ratingOk && timeOk && genreOk(row);
-          row.style.display = show ? "" : "none";
-          if (show) {
+          if (!show) {
+            row.style.display = "none";
+          } else {
             groupHasVisible = true;
             cardVisibleCount++;
+            // Past the cap the row is hidden but still counted: the card's
+            // "N showtimes", the header totals and the By Movie tab all report
+            // what matched your filters, not what happens to fit on screen.
+            row.style.display = !expanded && cardVisibleCount > SHOWTIME_CAP ? "none" : "";
             var info = visibleFilms.get(row.dataset.film);
             if (!info) { info = { cinemas: new Set(), count: 0, times: [] }; visibleFilms.set(row.dataset.film, info); }
             info.cinemas.add(cinemaLabel);
@@ -881,6 +980,13 @@
 
       var countLabel = card.querySelector(".count-label");
       if (countLabel) countLabel.textContent = cardVisibleCount + " showtime" + (cardVisibleCount !== 1 ? "s" : "");
+
+      var moreBtn = card.querySelector(".show-more");
+      if (moreBtn) {
+        var overflow = cardVisibleCount - SHOWTIME_CAP;
+        moreBtn.hidden = overflow <= 0;
+        moreBtn.textContent = expanded ? "Show less" : "+" + overflow + " more";
+      }
 
       card.style.display = cardHasVisible ? "" : "none";
       if (cardHasVisible) { visibleCards++; grandTotal += cardVisibleCount; }
@@ -903,6 +1009,7 @@
     updatePanelCounts();
     updateResetVisibility();
     updateMap();
+    persist();
   }
 
   function escapeHtml(s) {
@@ -1038,6 +1145,23 @@
   }
   wireSortToggle("cinema-panel");
 
+  cards.forEach(function (card) {
+    var btn = card.querySelector(".show-more");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var key = card.dataset.cinema;
+      if (expandedCards.has(key)) {
+        expandedCards.delete(key);
+        // Collapsing from halfway down a long card would leave you staring at
+        // whatever ends up under the cursor; put the card's top back in view.
+        card.scrollIntoView({ block: "nearest" });
+      } else {
+        expandedCards.add(key);
+      }
+      applyFilters();
+    });
+  });
+
   var viewTabs = Array.prototype.slice.call(document.querySelectorAll(".view-tab"));
   var cinemaView = document.getElementById("cinema-view");
   var movieView = document.getElementById("movie-view");
@@ -1055,7 +1179,9 @@
 
   // --- Reset filters -------------------------------------------------------
   var allBoxes = Array.prototype.slice.call(document.querySelectorAll(".cinema-toggle, .bucket-toggle, .genre-toggle"));
-  var initialDay = state.day;
+  // The build's defaults, not what was restored from storage -- Reset has to be
+  // a way back out of remembered filters, otherwise it resets to themselves.
+  var initialDay = DEFAULT_DAY;
   var resetBtn = document.getElementById("reset-btn");
 
   function isDirty() {
